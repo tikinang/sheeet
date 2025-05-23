@@ -2,20 +2,19 @@
 name = "sheetdb"
 version = "0.1.0"
 edition = "2024"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = ["console_error_panic_hook"]
+authors = ["Matěj Pavlíček <tikinang@gmail.com>"]
+description = "Spreadsheet powered by Rust and WebAssembly."
+license = "MIT/Apache-2.0"
+repository = "https://github.com/tikinang/sheetdb"
 
 [dependencies]
-console_error_panic_hook = { version = "0.1.7", optional = true }
+console_error_panic_hook = "0.1.7"
 wasm-bindgen = "0.2.100"
 
-[dev-dependencies]
-wasm-bindgen-test = "0.3.50"
+# This will be in the user crate.
+[lib]
+crate-type = ["cdylib"]
+name = "test"
 
 [profile.release]
-# Tell `rustc` to optimize for small code size.
 opt-level = "s"

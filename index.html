@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>Sheeet</title>
+    <link data-trunk rel="rust" data-bin="sheetdb">
+    <link data-trunk rel="css" href="index.css">
+    <link data-trunk rel="copy-file" href="target/wasm32-unknown-unknown/release/test.wasm">
+    <link data-trunk rel="copy-file" href="pkg/test.js">
+    <link data-trunk rel="copy-file" href="pkg/test_bg.wasm">
+</head>
+<body>
+<script type="module">
+    async function loadWasmBindgenModule(jsUrl, wasmUrl) {
+        // Dynamically import the JS module
+        const module = await import(jsUrl);
+
+        // Initialize with the WASM URL
+        // The default export is usually the init function
+        await module.default(wasmUrl);
+
+        // Return the module with all exported functions
+        return module;
+    }
+
+    // Usage
+    const userModule = await loadWasmBindgenModule('/test.js', '/test_bg.wasm');
+
+    // Now you can use the exported functions
+    console.log(userModule.add(1, 2));
+</script>
+<!--<script>-->
+<!--    WebAssembly.instantiateStreaming(fetch("test.wasm"), {}).then(-->
+<!--        (obj) => {-->
+<!--            console.log(obj.instance.exports);-->
+<!--            // Call an exported function:-->
+<!--            const addResult = obj.instance.exports.add(1, 2);-->
+<!--            console.log(addResult);-->
+
+<!--            // or access the buffer contents of an exported memory:-->
+<!--            const dv = new DataView(obj.instance.exports.memory.buffer);-->
+
+<!--            // or access the elements of an exported table:-->
+<!--            const table = obj.instance.exports.table;-->
+<!--            console.log(table.get(0)());-->
+<!--        },-->
+<!--    ).catch((reason) => {-->
+<!--        console.log(reason)-->
+<!--    });-->
+<!--</script>-->
+</body>
+</html>
