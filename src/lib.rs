@@ -1,8 +1,13 @@
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub fn add(left: u32, right: u32) -> u32 {
+pub fn add(left: f64, right: f64) -> f64 {
     left + right
+}
+
+#[wasm_bindgen]
+pub fn sub(left: f64, right: f64) -> f64 {
+    left - right
 }
 
 #[cfg(test)]
@@ -11,7 +16,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+        let result = add(2.0, 2.0);
+        assert_eq!(result, 4.0);
     }
 }

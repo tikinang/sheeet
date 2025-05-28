@@ -2,11 +2,6 @@
 addresses = ["127.0.0.1"]
 port = 7878
 
-#[[hooks]]
-#stage = "pre_build"
-#command = "cargo"
-#command_arguments = ["build", "--lib", "--release", "--target", "wasm32-unknown-unknown"]
-
 [[hooks]]
 stage = "pre_build"
 command = "wasm-pack"
