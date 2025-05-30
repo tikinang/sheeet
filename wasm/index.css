@@ -2,3 +2,20 @@ body {
     background-color: black;
     color: whitesmoke;
 }
+
+code {
+    display: block;
+    white-space: pre;
+    overflow-x: auto;
+    padding: 1rem;
+}
+
+code:focus {
+    outline: 1px solid white;
+}
+
+.container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: 100vh;
+}

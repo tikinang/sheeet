@@ -6,7 +6,19 @@
     <link data-trunk rel="rust">
     <link data-trunk rel="css" href="index.css">
 </head>
-<body>
+<body class="container">
+
+
+<div>
+    <form id="my-form">
+        <input type="submit">
+    </form>
+</div>
+<div>
+    <code contenteditable="true" id="cargo-toml-content"></code>
+    <hr>
+    <code contenteditable="true" id="lib-rs-content"></code>
+</div>
 
 <!-- This script is integral for the prototype to work. -->
 <script type="module">
@@ -25,26 +37,80 @@
         window.userWasmModule = userWasmModule;
     }
 
-    const workspace_id = 'aiakuwcimlhj';
-    const response = await fetch(`http://localhost:8080/compile?workspace_id=${workspace_id}`, {
-        method: 'PUT',
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            lib_rs: document.getElementById("lib-rs-content").textContent,
-            cargo_toml: document.getElementById("cargo-toml-content").textContent,
+    async function compile() {
+        const workspace_id = 'aiakuwcimlhj';
+        const response = await fetch(`http://localhost:8080/compile?workspace_id=${workspace_id}`, {
+            method: 'PUT',
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                lib_rs: document.getElementById("lib-rs-content").textContent,
+                cargo_toml: document.getElementById("cargo-toml-content").textContent,
+            })
         })
-    })
-    response.json().then(async (response) => {
-        await loadWasmBindgenModule(
-            `http://localhost:8080${response.js_download_url}`,
-            `http://localhost:8080${response.wasm_download_url}`,
-        );
-    });
-    // Simulate first reload.
-    // TODO: Handle via "Compile" button or call on init.
-    // await loadWasmBindgenModule('/test.js', '/test_bg.wasm');
+        response.json().then(async (response) => {
+            await loadWasmBindgenModule(
+                `http://localhost:8080${response.js_download_url}`,
+                `http://localhost:8080${response.wasm_download_url}`,
+            );
+        });
+    }
+    
+    function loadCodeOrSetDefault(key, defaultContent) {
+        let content = localStorage.getItem(key)
+        if (!content) {
+            content = defaultContent
+        }
+        const element = document.getElementById(key)
+        element.textContent = content
+        localStorage.setItem(key, content)
+
+        element.addEventListener('keydown', async function (event) {
+            if (event.ctrlKey && event.key === 'Enter') {
+                event.preventDefault();
+                saveCode(element)
+                await compile();
+            }
+        });
+    }
+
+    function saveCode(element) {
+        localStorage.setItem(element.id, element.textContent)
+    }
+
+    loadCodeOrSetDefault(
+        "cargo-toml-content",
+        `[package]
+name = "sheeet-lib"
+edition = "2024"
+
+[dependencies]
+wasm-bindgen = "0.2.100"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+`
+    )
+    loadCodeOrSetDefault(
+        "lib-rs-content",
+        `use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn add(a: f64, b: f64) -> f64 {
+    a + b
+}
+
+#[wasm_bindgen]
+pub fn sub(a: f64, b: f64) -> f64 {
+    a - b
+}
+`
+    )
+
+    await compile();
+
+
 </script>
 
 <!-- This script just enables interactively call the Rust WASM to test it. -->
@@ -61,34 +127,6 @@
         await window.wasmBindings.run_evaluate();
     });
 </script>
-
-<form id="my-form">
-    <input type="submit">
-</form>
-<hr>
-<code id="cargo-toml-content">[package]
-name = "sheeet-lib"
-edition = "2024"
-
-[dependencies]
-wasm-bindgen = "0.2.100"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-</code>
-<hr>
-<code id="lib-rs-content">use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-pub fn add(a: f64, b: f64) -> f64 {
-    a + b
-}
-
-#[wasm_bindgen]
-pub fn sub(a: f64, b: f64) -> f64 {
-    a - b
-}
-</code>
 
 </body>
 </html>
