@@ -19,11 +19,29 @@
     // This function would be called on reload.
     // Should also work with Trunk if supplied with correct urls. 
     async function loadWasmBindgenModule(jsUrl, wasmUrl) {
-        const module = await import(jsUrl);
-        await module.default(wasmUrl);
-        window.userWasmModule = module;
+        const jsContent = await fetch(jsUrl).then(r => r.text());
+        const userWasmModule = new Function(`${jsContent}return wasm_bindgen;`)();
+        await userWasmModule({module_or_path: wasmUrl})
+        window.userWasmModule = userWasmModule;
     }
 
+    const workspace_id = 'aiakuwcimlhj';
+    const response = await fetch(`http://localhost:8080/compile?workspace_id=${workspace_id}`, {
+        method: 'PUT',
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            lib_rs: document.getElementById("lib-rs-content").textContent,
+            cargo_toml: document.getElementById("cargo-toml-content").textContent,
+        })
+    })
+    response.json().then(async (response) => {
+        await loadWasmBindgenModule(
+            `http://localhost:8080${response.js_download_url}`,
+            `http://localhost:8080${response.wasm_download_url}`,
+        );
+    });
     // Simulate first reload.
     // TODO: Handle via "Compile" button or call on init.
     // await loadWasmBindgenModule('/test.js', '/test_bg.wasm');
@@ -47,6 +65,30 @@
 <form id="my-form">
     <input type="submit">
 </form>
+<hr>
+<code id="cargo-toml-content">[package]
+name = "sheeet-lib"
+edition = "2024"
+
+[dependencies]
+wasm-bindgen = "0.2.100"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+</code>
+<hr>
+<code id="lib-rs-content">use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn add(a: f64, b: f64) -> f64 {
+    a + b
+}
+
+#[wasm_bindgen]
+pub fn sub(a: f64, b: f64) -> f64 {
+    a - b
+}
+</code>
 
 </body>
 </html>

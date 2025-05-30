@@ -8,6 +8,7 @@ license = "MIT/Apache-2.0"
 repository = "https://github.com/tikinang/sheeet"
 
 [dependencies]
+actix-cors = "0.7.1"
 actix-files = "0.6.6"
 actix-web = "4.11.0"
 rand = "0.9.1"

@@ -1,3 +1,4 @@
+use actix_cors::Cors;
 use actix_files::Files;
 use actix_web::{post, put, web, App, HttpResponse, HttpServer, Responder};
 use rand::Rng;
@@ -36,6 +37,7 @@ async fn compile(body: web::Json<CompileBody>, query: web::Query<CompileQuery>) 
     fs::write(format!("{path}/Cargo.toml"), body.cargo_toml.as_str()).unwrap();
     fs::write(format!("{path}/index.html"), include_str!("user.html")).unwrap();
 
+    println!("workspace PATH: {}", path);
     match Command::new("trunk")
         .current_dir(&path)
         .stdout(Stdio::inherit())
@@ -96,8 +98,15 @@ async fn initialize() -> impl Responder {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
+        // TODO: CORS.
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header();
+
         App::new()
             .service(Files::new("/workspaces", WORKSPACES_PATH))
+            .wrap(cors)
             .service(compile)
             .service(initialize)
     })
