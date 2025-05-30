@@ -44,5 +44,5 @@ pub fn run_evaluate() {
 
 fn main() {
     console_error_panic_hook::set_once();
-    log("test");
+    log("log from wasm main");
 }

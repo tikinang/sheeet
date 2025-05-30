@@ -1,22 +1,7 @@
-[package]
-name = "sheeet"
-version = "0.1.0"
-edition = "2024"
-authors = ["Matěj Pavlíček <tikinang@gmail.com>"]
-description = "Spreadsheet powered by Rust and WebAssembly."
-license = "MIT/Apache-2.0"
-repository = "https://github.com/tikinang/sheeet"
+[workspace]
+resolver = "3"
+members = ["api", "wasm", "workspaces/aiakuwcimlhj"]
 
-[dependencies]
-console_error_panic_hook = "0.1.7"
-js-sys = "0.3.77"
-wasm-bindgen = "0.2.100"
-web-sys = { version = "0.3.77", features = ["console"] }
-
-# This will be in the user crate.
-[lib]
-crate-type = ["cdylib"]
-name = "test"
-
-[profile.release]
+[profile.release-wasm]
+inherits = "release"
 opt-level = "s"
