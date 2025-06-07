@@ -1,0 +1,43 @@
+zerops:
+  - setup: api
+    build: 
+      os: alpine
+      base: rust@latest
+      buildCommands:
+        - cargo build -p sheeet-api -r
+        - mv target/release/sheeet-api sheeet-api
+      deployFiles: 
+        - sheeet-api
+      cache:
+        - target
+    run: 
+      os: alpine
+      base: alpine@latest
+      ports:
+        - port: 8080
+          httpSupport: true
+      envVariables: 
+        RUST_LOG: debug
+      initCommands:
+        - mkdir -p workspaces
+      start: ./sheeet-api
+      
+  - setup: app
+    build: 
+      os: alpine
+      base: rust@latest
+      prepareCommands:
+        - cargo install --locked trunk
+      buildCommands:
+        - |
+          cd wasm
+          trunk build
+      deployFiles: 
+        - wasm/dist
+      cache:
+        - target
+    run: 
+      os: alpine
+      base: static@latest
+      routing: 
+        root: wasm/dist

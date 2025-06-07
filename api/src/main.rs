@@ -97,6 +97,8 @@ async fn initialize() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init();
+
     HttpServer::new(|| {
         // TODO: CORS.
         let cors = Cors::default()
