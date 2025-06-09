@@ -1,20 +1,10 @@
-#![allow(warnings)]
-
 use std::collections::HashMap;
 use std::ops::Index;
 
-fn add(a: isize, b: isize) -> isize {
-    a + b
-}
-
-struct Spreadsheet {
-    cells_map: HashMap<CellPointer, Cell>,
-}
-
 #[derive(Debug, PartialEq)]
-struct CellPointer(usize, usize);
+pub struct CellPointer(usize, usize);
 
-struct Cell {
+pub struct Cell {
     parents: HashMap<CellPointer, Cell>,
     children: HashMap<CellPointer, Cell>,
     comp_val: Option<String>,
@@ -23,7 +13,7 @@ struct Cell {
 
 /// =add(A, sub(4, 2))
 #[derive(Debug, PartialEq)]
-enum Expression {
+pub enum Expression {
     None,
     Function {
         name: String,
@@ -87,7 +77,7 @@ fn usize_to_column_name(mut index: usize) -> String {
 
 /// A2, A1:A5, A1:A, A1:1, AA1:AA5
 #[derive(Debug, PartialEq)]
-enum Reference {
+pub enum Reference {
     Single(CellPointer),
     BoundedRange(CellPointer, CellPointer),
     UnboundedColRange(CellPointer, usize),
@@ -97,7 +87,7 @@ enum Reference {
 const COLON: char = ':';
 
 impl Reference {
-    fn parse(input: &str) -> Result<Self, String> {
+    pub fn parse(input: &str) -> Result<Self, String> {
         if !input.is_ascii() {
             return Err(format!("input '{input}' is not ascii"));
         }
@@ -184,7 +174,7 @@ const CLOSING_BRACKET: char = ')';
 
 // TODO: Support strings.
 
-fn parse_expression(mut input: &str) -> Result<Expression, &'static str> {
+pub fn parse_expression(mut input: &str) -> Result<Expression, &'static str> {
     println!("--parse expression: '{input}'");
     input = input.strip_prefix(EQUAL_SIGN).unwrap_or_else(|| input);
 
@@ -267,11 +257,6 @@ fn parse_expression(mut input: &str) -> Result<Expression, &'static str> {
 mod tests {
     use super::*;
     use crate::Expression::{Function, Value};
-
-    #[test]
-    fn test_add() {
-        assert_eq!(add(1, 2), 3)
-    }
 
     #[test]
     fn test_parse_expression() {

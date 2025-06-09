@@ -1,4 +1,5 @@
 use js_sys::Array;
+use sheeet_wasm::{parse_expression, Expression};
 use wasm_bindgen::prelude::*;
 use web_sys::console::log_2;
 
@@ -14,32 +15,38 @@ extern "C" {
 }
 
 #[wasm_bindgen]
-pub fn run_evaluate() {
-    let js_array = Array::new();
-    js_array.push(&JsValue::from_f64(5.5));
-    js_array.push(&JsValue::from_f64(6.5));
+pub fn run_evaluate(input: &str) -> JsValue {
+    let expression = parse_expression(input).unwrap();
+    match iterate_expression(expression) {
+        Ok(val) => {
+            log_2(&"evaluate ok:".into(), &val);
+            val
+        }
+        Err(err) => {
+            log_2(&"evaluate failed:".into(), &err);
+            err
+        }
+    }
+}
 
-    match evaluate("add", &js_array) {
-        Ok(result) => {
-            log_2(&"evaluate ok!".into(), &result);
-
-            let js_array = Array::new();
-            js_array.push(&result);
-            js_array.push(&JsValue::from_f64(3.0));
-
-            match evaluate("sub", &js_array) {
-                Ok(result) => {
-                    log_2(&"evaluate ok!".into(), &result);
-                }
-                Err(js_error) => {
-                    log_2(&"evaluate failed :(".into(), &js_error);
-                }
+fn iterate_expression(expression: Expression) -> Result<JsValue, JsValue> {
+    match expression {
+        Expression::None => {
+            todo!("remove None expression, use option")
+        }
+        Expression::Function { name, inputs } => {
+            let js_inputs = Array::new();
+            for input in inputs {
+                let val = iterate_expression(input)?;
+                js_inputs.push(&val);
             }
+            evaluate(&name, &js_inputs)
         }
-        Err(js_error) => {
-            log_2(&"evaluate failed :(".into(), &js_error);
+        Expression::Reference(reference) => {
+            todo!("references")
         }
-    };
+        Expression::Value(val) => Ok(JsValue::from_str(&val)),
+    }
 }
 
 fn main() {

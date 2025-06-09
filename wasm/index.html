@@ -11,9 +11,13 @@
 
 <div>
     <form id="my-form">
+        <label for="my-expression">Expression</label>
+        <input type="text" id="my-expression" placeholder="=sub(add(4, 7), 3)"/>
         <input type="submit">
     </form>
+    <h1 id="my-result"></h1>
 </div>
+
 <div>
     <code contenteditable="true" id="cargo-toml-content"></code>
     <hr>
@@ -124,7 +128,8 @@ pub fn sub(a: f64, b: f64) -> f64 {
     });
     document.getElementById('my-form').addEventListener('submit', async (event) => {
         event.preventDefault();
-        await window.wasmBindings.run_evaluate();
+        const input = document.getElementById('my-expression').value;
+        document.getElementById('my-result').textContent = await window.wasmBindings.run_evaluate(input);
     });
 </script>
 
