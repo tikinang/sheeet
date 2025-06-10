@@ -3,8 +3,8 @@ use actix_files::Files;
 use actix_web::{post, put, web, App, HttpResponse, HttpServer, Responder};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::process::{Command, Stdio};
+use std::{env, fs};
 
 #[derive(Deserialize)]
 struct CompileQuery {
@@ -23,15 +23,23 @@ struct CompileResponse {
     wasm_download_url: String,
 }
 
-// TODO: Take from env.
-const WORKSPACES_PATH: &str = "/home/tikinang/code/other/sheeet/workspaces";
-
 #[put("/compile")]
 async fn compile(body: web::Json<CompileBody>, query: web::Query<CompileQuery>) -> impl Responder {
     // TODO: Error handling.
 
     println!("workspace ID: {}", &query.workspace_id);
-    let path = format!("{}/{}", WORKSPACES_PATH, &query.workspace_id);
+    let path = format!(
+        "{}/{}",
+        env::var(ENV_KEY_API_WORKSPACES_PATH).unwrap_or(DEFAULT_WORKSPACES_PATH.into()),
+        &query.workspace_id
+    );
+
+    if !fs::exists(&path).unwrap() {
+        // TODO: This is wrong and temporary. Users should not be allowed to use their own workspace IDs.
+        if let Err(err) = initialize_workspace(&query.workspace_id) {
+            return err;
+        };
+    }
 
     fs::write(format!("{path}/src/lib.rs"), body.lib_rs.as_str()).unwrap();
     fs::write(format!("{path}/Cargo.toml"), body.cargo_toml.as_str()).unwrap();
@@ -45,8 +53,16 @@ async fn compile(body: web::Json<CompileBody>, query: web::Query<CompileQuery>) 
         .arg("build")
         .status()
     {
-        Err(error) => return HttpResponse::InternalServerError().body(error.to_string()),
-        Ok(status) => println!("{}", status),
+        Err(error) => {
+            return HttpResponse::InternalServerError()
+                .body(format!("run trunk build: '{path}': {}", error.to_string()));
+        }
+        Ok(status) => {
+            if !status.success() {
+                return HttpResponse::InternalServerError()
+                    .body(format!("run trunk build: exit status: {:?}", status));
+            }
+        }
     };
 
     HttpResponse::Ok().json(CompileResponse {
@@ -71,15 +87,27 @@ async fn initialize() -> impl Responder {
         .map(|c| c.to_ascii_lowercase())
         .collect();
     println!("{}", workspace_id);
-    let rel_path = format! {"{}/{}", WORKSPACES_PATH, &workspace_id};
 
-    match fs::create_dir_all(&rel_path) {
-        Err(error) => return HttpResponse::InternalServerError().body(error.to_string()),
+    if let Err(err) = initialize_workspace(&workspace_id) {
+        return err;
+    };
+
+    HttpResponse::Ok().json(InitializeResponse { workspace_id })
+}
+
+fn initialize_workspace(workspace_id: &str) -> Result<(), HttpResponse> {
+    let path = format! {"{}/{}", env::var(ENV_KEY_API_WORKSPACES_PATH).unwrap_or(DEFAULT_WORKSPACES_PATH.into()), &workspace_id};
+
+    match fs::create_dir_all(&path) {
+        Err(error) => {
+            return Err(HttpResponse::InternalServerError()
+                .body(format!("create dir all '{path}': {}", error.to_string())));
+        }
         _ => (),
     };
 
     match Command::new("cargo")
-        .current_dir(&rel_path)
+        .current_dir(&path)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .arg("init")
@@ -88,12 +116,24 @@ async fn initialize() -> impl Responder {
         .arg("sheeet-lib")
         .status()
     {
-        Err(error) => return HttpResponse::InternalServerError().body(error.to_string()),
-        Ok(status) => println!("{}", status),
+        Err(error) => {
+            return Err(HttpResponse::InternalServerError()
+                .body(format!("run cargo init: '{path}': {}", error.to_string())));
+        }
+        Ok(status) => {
+            if !status.success() {
+                return Err(HttpResponse::InternalServerError()
+                    .body(format!("run cargo init: exit status: {:?}", status)));
+            }
+        }
     };
 
-    HttpResponse::Ok().json(InitializeResponse { workspace_id })
+    Ok(())
 }
+
+// TODO: Improve configurability.
+const DEFAULT_WORKSPACES_PATH: &str = "/home/tikinang/workspaces";
+const ENV_KEY_API_WORKSPACES_PATH: &str = "WORKSPACES_PATH";
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -107,12 +147,15 @@ async fn main() -> std::io::Result<()> {
             .allow_any_header();
 
         App::new()
-            .service(Files::new("/workspaces", WORKSPACES_PATH))
+            .service(Files::new(
+                "/workspaces",
+                env::var(ENV_KEY_API_WORKSPACES_PATH).unwrap_or(DEFAULT_WORKSPACES_PATH.into()),
+            ))
             .wrap(cors)
             .service(compile)
             .service(initialize)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("0.0.0.0", 8080))?
     .workers(4)
     .run()
     .await

@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["api", "wasm"]
-exclude = ["workspaces/aiakuwcimlhj"]
 
 [profile.release-wasm]
 inherits = "release"
