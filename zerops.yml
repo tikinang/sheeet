@@ -1,28 +1,22 @@
 zerops:
   - setup: api
     build:
-      os: ubuntu
-      base: rust@latest
-      prepareCommands:
-        # TODO: Change after Zerops Rust images are fixed.
-        - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      os: alpine
+      base: rust@stable
       buildCommands:
-        - ~/.cargo/bin/cargo build -p sheeet-api -r
+        - cargo build -p sheeet-api -r
         - mv target/release/sheeet-api sheeet-api
       deployFiles:
         - sheeet-api
       cache:
         - target
     run:
-      os: ubuntu
-      base: rust@latest
+      os: alpine
+      base: rust@stable
       prepareCommands:
-        # TODO: Change after Zerops Rust images are fixed.
-        - sudo apt-get update && sudo apt-get install -y build-essential
-        - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        - ~/.cargo/bin/rustup target add wasm32-unknown-unknown
-        - curl -sL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-musl.tar.gz | tar -xzf -
-        - mv trunk ~/.cargo/bin/trunk
+        - rustup target add wasm32-unknown-unknown
+        - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+        - cargo binstall -y trunk
       ports:
         - port: 8080
           httpSupport: true
@@ -35,22 +29,20 @@ zerops:
           
   - setup: app
     build: 
-      os: ubuntu
-      base: rust@latest
+      os: alpine
+      base: rust@stable
       prepareCommands:
-        # TODO: Change after Zerops Rust images are fixed.
-        - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        - ~/.cargo/bin/rustup target add wasm32-unknown-unknown
-        - curl -sL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-musl.tar.gz | tar -xzf -
-        - mv trunk ~/.cargo/bin/trunk
+        - rustup target add wasm32-unknown-unknown
+        - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+        - cargo binstall -y trunk
       buildCommands:
-        - cd wasm; ~/.cargo/bin/trunk build
+        - cd wasm; trunk build
       deployFiles: 
         - wasm/dist
       cache:
         - target
     run: 
-      os: ubuntu
+      os: alpine
       base: static@latest
       envVariables:
         API_URL: $api_zeropsSubdomain
