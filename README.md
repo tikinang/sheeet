@@ -1,6 +1,10 @@
 # SHEEET
 
-Rust and WebAssembly powered spreadsheet,
+Rust and WebAssembly powered spreadsheet.
+
+![Sheeet logo.](/sheeet-baner.png)
+
+---
 
 ## TODO
 
