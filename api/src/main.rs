@@ -24,9 +24,18 @@ struct CompileBody {
 }
 
 #[derive(Serialize)]
-struct CompileResponse {
+struct DownloadInfo {
     js_download_url: String,
     wasm_download_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StreamEvent {
+    StdoutLine(String),
+    StderrLine(String),
+    Error(String),
+    DownloadInfo(DownloadInfo),
 }
 
 #[put("/compile")]
@@ -70,14 +79,17 @@ async fn compile(
         actix_web::error::ErrorInternalServerError("failed to capture trunk build stderr")
     })?;
 
-    let (stdout_sender, receiver) = mpsc::channel();
-    let stderr_sender = stdout_sender.clone();
+    let (sender, receiver) = mpsc::channel();
+    let stdout_sender = sender.clone();
+    let stderr_sender = sender.clone();
+    let finished_sender = sender.clone();
+    drop(sender);
 
     thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
             if let Ok(line) = line {
-                let _ = stdout_sender.send(line);
+                let _ = stdout_sender.send(StreamEvent::StdoutLine(line.trim().into()));
             }
         }
     });
@@ -85,8 +97,29 @@ async fn compile(
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             if let Ok(line) = line {
-                let _ = stderr_sender.send(line);
+                let _ = stderr_sender.send(StreamEvent::StderrLine(line.trim().into()));
             }
+        }
+    });
+
+    thread::spawn(move || match child.wait() {
+        Ok(status) if status.success() => {
+            _ = finished_sender.send(StreamEvent::DownloadInfo(DownloadInfo {
+                js_download_url: format!("/workspaces/{}/dist/sheeet-lib.js", query.workspace_id),
+                wasm_download_url: format!(
+                    "/workspaces/{}/dist/sheeet-lib_bg.wasm",
+                    query.workspace_id
+                ),
+            }));
+            println!("Build completed successfully");
+        }
+        Ok(status) => {
+            _ = finished_sender.send(StreamEvent::Error(format!("build failed: {status}")));
+            println!("Build failed");
+        }
+        Err(err) => {
+            _ = finished_sender.send(StreamEvent::Error(format!("build failed with err: {err}")));
+            println!("Build failed with err");
         }
     });
 
@@ -100,8 +133,14 @@ async fn compile(
     Ok(HttpResponse::Ok()
         .content_type("text/event-stream")
         .streaming(stream.map(|result: Result<_, Error>| match result {
-            Ok(line) => Ok::<_, Error>(Bytes::from(format!("data: {}\n", line.trim()))),
-            Err(e) => Ok(Bytes::from(format!("data: Error: {}\n\n", e))),
+            Ok(event) => Ok::<_, Error>(Bytes::from(format!(
+                "data: {}\n",
+                serde_json::to_string(&event)?
+            ))),
+            Err(err) => Ok(Bytes::from(format!(
+                "data: {}\n\n",
+                serde_json::to_string(&StreamEvent::Error(err.to_string()))?
+            ))),
         })))
 }
 

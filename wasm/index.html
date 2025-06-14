@@ -9,7 +9,6 @@
 </head>
 <body class="container">
 
-
 <div>
     <form id="my-form">
         <label for="my-expression">Expression</label>
@@ -118,18 +117,32 @@
             const lines = buffer.split('\n');
             buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
+            function stripDataPrefix(line) {
+                const PREFIX = "data: ";
+                if (line.startsWith(PREFIX)) {
+                    line = line.slice(PREFIX.length);
+                }
+                return line
+            }
+
             for (const line of lines) {
-                appendLog(logsContainer, line);
+                const parsed = JSON.parse(stripDataPrefix(line));
+                if (parsed.stdout_line !== undefined) {
+                    appendLog(logsContainer, parsed.stdout_line);
+                } else if (parsed.stderr_line !== undefined) {
+                    appendLog(logsContainer, parsed.stderr_line);
+                } else if (parsed.error !== undefined) {
+                    appendLog(logsContainer, parsed.error);
+                } else if (parsed.download_info !== undefined) {
+                    await loadWasmBindgenModule(
+                        `${window.API_BASE_URL}${parsed.download_info.js_download_url}`,
+                        `${window.API_BASE_URL}${parsed.download_info.wasm_download_url}`,
+                    );
+                } else {
+                    console.error("unknown SSE message:", parsed)
+                }
             }
         }
-
-        // TODO(tikinang): Download.
-        // await response.json().then(async (body) => {
-        //     await loadWasmBindgenModule(
-        //         `${window.API_BASE_URL}${body.js_download_url}`,
-        //         `${window.API_BASE_URL}${body.wasm_download_url}`,
-        //     );
-        // });
     }
 
     function loadCodeOrSetDefault(key, defaultContent) {
