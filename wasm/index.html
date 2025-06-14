@@ -23,6 +23,8 @@
     <code contenteditable="true" id="cargo-toml-content"></code>
     <hr>
     <code contenteditable="true" id="lib-rs-content"></code>
+    <hr>
+    <code id="logs"></code>
 </div>
 
 <!-- This script is integral for the prototype to work. -->
@@ -39,7 +41,7 @@
     }
 
     window.API_BASE_URL = getApiBaseUrl();
-    
+
     // This function is called from Rust to evaluate the user functions.
     // TODO: I am really not sure about performance of this, it is a working prototype.
     window.evaluate = function (fnName, vars) {
@@ -71,9 +73,18 @@
         }
         return workspaceId
     }
-    
+
+    function appendLog(logsContainer, message) {
+        const logEntry = document.createElement('p');
+        logEntry.textContent = message;
+        logEntry.className = 'log-entry';
+        logsContainer.prepend(logEntry);
+        logsContainer.scrollTop = logsContainer.scrollHeight;
+    }
+
     async function compile() {
         const workspaceId = await initializeWorkspace();
+        const logsContainer = document.getElementById('logs');
         const response = await fetch(`${window.API_BASE_URL}/compile?workspace_id=${workspaceId}`, {
             method: 'PUT',
             headers: {
@@ -84,14 +95,43 @@
                 cargo_toml: document.getElementById("cargo-toml-content").textContent,
             })
         })
-        await response.json().then(async (body) => {
-            await loadWasmBindgenModule(
-                `${window.API_BASE_URL}${body.js_download_url}`,
-                `${window.API_BASE_URL}${body.wasm_download_url}`,
-            );
-        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const {done, value} = await reader.read();
+
+            if (done) {
+                break;
+            }
+
+            // Decode the chunk and add to buffer
+            buffer += decoder.decode(value, {stream: true});
+
+            // Process complete lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+            for (const line of lines) {
+                appendLog(logsContainer, line);
+            }
+        }
+
+        // TODO(tikinang): Download.
+        // await response.json().then(async (body) => {
+        //     await loadWasmBindgenModule(
+        //         `${window.API_BASE_URL}${body.js_download_url}`,
+        //         `${window.API_BASE_URL}${body.wasm_download_url}`,
+        //     );
+        // });
     }
-    
+
     function loadCodeOrSetDefault(key, defaultContent) {
         let content = localStorage.getItem(key)
         if (!content) {

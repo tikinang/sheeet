@@ -19,3 +19,12 @@ code:focus {
     grid-template-columns: 1fr 1fr;
     height: 100vh;
 }
+
+#logs {
+    overflow-y: auto;
+}
+
+.log-entry {
+    margin: 2px 0;
+    white-space: pre-wrap;
+}
