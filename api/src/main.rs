@@ -188,27 +188,26 @@ async fn compile(
                     return;
                 }
             };
-
-            if let Err(err) = fs::write(
-                Path::new(&workspace_path).join("index.html"),
-                include_str!("user.html"),
-            ) {
-                responder.terminate_error(err);
-                return;
-            };
-            if let Err(err) = fs::write(Path::new(&workspace_path).join("src/lib.rs"), &body.lib_rs)
-            {
-                responder.terminate_error(err);
-                return;
-            };
-            if let Err(err) = fs::write(
-                Path::new(&workspace_path).join("Cargo.toml"),
-                &body.cargo_toml,
-            ) {
-                responder.terminate_error(err);
-                return;
-            };
         }
+
+        if let Err(err) = fs::write(
+            Path::new(&workspace_path).join("index.html"),
+            include_str!("user.html"),
+        ) {
+            responder.terminate_error(err);
+            return;
+        };
+        if let Err(err) = fs::write(Path::new(&workspace_path).join("src/lib.rs"), &body.lib_rs) {
+            responder.terminate_error(err);
+            return;
+        };
+        if let Err(err) = fs::write(
+            Path::new(&workspace_path).join("Cargo.toml"),
+            &body.cargo_toml,
+        ) {
+            responder.terminate_error(err);
+            return;
+        };
 
         let mut child = match responder.stream_command(
             Command::new("trunk")

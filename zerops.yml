@@ -1,7 +1,7 @@
 zerops:
   - setup: api
     build:
-      os: alpine
+      os: ubuntu
       base: rust@stable
       buildCommands:
         - cargo build -p sheeet-api -r
@@ -11,7 +11,7 @@ zerops:
       cache:
         - target
     run:
-      os: alpine
+      os: ubuntu
       base: rust@stable
       prepareCommands:
         - rustup target add wasm32-unknown-unknown

@@ -23,6 +23,7 @@
     <hr>
     <code contenteditable="true" id="lib-rs-content"></code>
     <hr>
+    <p>hit CTRL+Enter to re-compile (while focused on the editor)</p>
     <code id="logs"></code>
 </div>
 
@@ -65,12 +66,14 @@
     }
 
     async function compile() {
+        document.getElementById('my-result').textContent = "Compiling...";
+        
         let url = `${window.API_BASE_URL}/compile`
         let workspaceId = localStorage.getItem("workspace-id");
         if (workspaceId !== null) {
             url = url + `?workspace_id=${workspaceId}`
         }
-        
+
         const response = await fetch(url, {
             method: 'PUT',
             headers: {
@@ -85,8 +88,9 @@
         if (!response.ok) {
             if (response.status === 404) {
                 localStorage.removeItem("workspace-id");
-            } 
-            throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            document.getElementById('my-result').textContent = `HTTP error: ${response.status} (try pressing F5)`
+            return;
         }
 
         const reader = response.body.getReader();
@@ -125,14 +129,15 @@
                 } else if (parsed.log !== undefined) {
                     appendLog(logsContainer, parsed.log);
                 } else if (parsed.error !== undefined) {
-                    // TODO(tikinang): Handle differently, terminate.
-                    appendLog(logsContainer, parsed.error);
+                    document.getElementById('my-result').textContent = `Compile error: ${parsed.error}` ;
+                    return;
                 } else if (parsed.download_info !== undefined) {
                     await loadWasmBindgenModule(
                         `${window.API_BASE_URL}${parsed.download_info.js_download_url}`,
                         `${window.API_BASE_URL}${parsed.download_info.wasm_download_url}`,
                     );
                     localStorage.setItem("workspace-id", parsed.download_info.workspace_id)
+                    document.getElementById('my-result').textContent = "Successfully compiled, enter your expression above.";
                 } else {
                     console.error("unknown SSE message:", parsed)
                 }
