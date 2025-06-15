@@ -3,13 +3,15 @@ use actix_files::Files;
 use actix_web::{post, put, web, App, Error, HttpResponse, HttpServer};
 // TODO: Can be replaced with std lib?
 use bytes::Bytes;
-// TODO: Can be replaced with std lib?
 use futures_util::stream::{self, StreamExt};
+// TODO: Can be replaced with std lib?
+use futures_util::Stream;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::{env, fs, thread};
 
 #[derive(Deserialize)]
@@ -36,6 +38,42 @@ enum StreamEvent {
     StderrLine(String),
     Error(String),
     DownloadInfo(DownloadInfo),
+}
+
+struct StreamingResponder {
+    receiver: Receiver<StreamEvent>,
+    sender: Sender<StreamEvent>,
+}
+
+impl StreamingResponder {
+    fn new() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        StreamingResponder { receiver, sender }
+    }
+
+    fn new_sender(&self) -> Sender<StreamEvent> {
+        self.sender.clone()
+    }
+
+    /// Consumes the responder and produces stream of all messages that receiver will receive.
+    fn produce_stream(self) -> impl Stream<Item = Result<Bytes, Error>> + 'static {
+        stream::unfold(self.receiver, |receiver| async move {
+            if let Ok(line) = receiver.recv() {
+                return Some((Ok(line), receiver));
+            }
+            None // Channel closed.
+        })
+        .map(|result: Result<_, Error>| match result {
+            Ok(event) => Ok(Bytes::from(format!(
+                "data: {}\n",
+                serde_json::to_string(&event)?
+            ))),
+            Err(err) => Ok(Bytes::from(format!(
+                "data: {}\n\n",
+                serde_json::to_string(&StreamEvent::Error(err.to_string()))?
+            ))),
+        })
+    }
 }
 
 #[put("/compile")]
@@ -79,12 +117,13 @@ async fn compile(
         actix_web::error::ErrorInternalServerError("failed to capture trunk build stderr")
     })?;
 
-    let (sender, receiver) = mpsc::channel();
-    let stdout_sender = sender.clone();
-    let stderr_sender = sender.clone();
-    let finished_sender = sender.clone();
-    drop(sender);
+    let streaming_responder = StreamingResponder::new();
 
+    let stdout_sender = streaming_responder.new_sender();
+    let stderr_sender = streaming_responder.new_sender();
+    let finished_sender = streaming_responder.new_sender();
+
+    // TODO: Shouldn't these be async?
     thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
@@ -123,25 +162,9 @@ async fn compile(
         }
     });
 
-    let stream = stream::unfold(receiver, |receiver| async move {
-        match receiver.recv() {
-            Ok(line) => Some((Ok(line), receiver)),
-            Err(_) => None, // Channel closed.
-        }
-    });
-
     Ok(HttpResponse::Ok()
         .content_type("text/event-stream")
-        .streaming(stream.map(|result: Result<_, Error>| match result {
-            Ok(event) => Ok::<_, Error>(Bytes::from(format!(
-                "data: {}\n",
-                serde_json::to_string(&event)?
-            ))),
-            Err(err) => Ok(Bytes::from(format!(
-                "data: {}\n\n",
-                serde_json::to_string(&StreamEvent::Error(err.to_string()))?
-            ))),
-        })))
+        .streaming(streaming_responder.produce_stream()))
 }
 
 #[derive(Serialize)]
