@@ -4,11 +4,10 @@ use actix_web::{post, put, web, App, Error, HttpResponse, HttpServer};
 // TODO: Can be replaced with std lib?
 use bytes::Bytes;
 use futures_util::stream::{self, StreamExt};
-// TODO: Can be replaced with std lib?
 use futures_util::Stream;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -51,6 +50,47 @@ impl StreamingResponder {
         StreamingResponder { receiver, sender }
     }
 
+    fn stream_command(&self, command: &mut Command) -> Result<std::process::Child, Error> {
+        let mut child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|err| {
+                actix_web::error::ErrorInternalServerError(format!(
+                    "failed to spawn command: {err}",
+                ))
+            })?;
+
+        let stdout = child.stdout.take().ok_or_else(|| {
+            actix_web::error::ErrorInternalServerError("failed to capture stdout")
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            actix_web::error::ErrorInternalServerError("failed to capture stderr")
+        })?;
+
+        self.spawn_buff_line_reading(stdout, StreamEvent::StdoutLine);
+        self.spawn_buff_line_reading(stderr, StreamEvent::StderrLine);
+
+        Ok(child)
+    }
+
+    fn spawn_buff_line_reading(
+        &self,
+        pipe: impl Read + Send + 'static,
+        line_constructor: fn(String) -> StreamEvent,
+    ) {
+        let sender = self.new_sender();
+        // TODO: Shouldn't this be async?
+        thread::spawn(move || {
+            let reader = BufReader::new(pipe);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    let _ = sender.send(line_constructor(line.trim().into()));
+                }
+            }
+        });
+    }
+
     fn new_sender(&self) -> Sender<StreamEvent> {
         self.sender.clone()
     }
@@ -81,9 +121,8 @@ async fn compile(
     body: web::Json<CompileBody>,
     query: web::Query<CompileQuery>,
 ) -> Result<HttpResponse, Error> {
-    // TODO: Error handling.
+    let streaming_responder = StreamingResponder::new();
 
-    println!("workspace ID: {}", &query.workspace_id);
     let path = format!(
         "{}/{}",
         env::var(ENV_KEY_API_WORKSPACES_PATH).unwrap_or(DEFAULT_WORKSPACES_PATH.into()),
@@ -95,55 +134,21 @@ async fn compile(
         initialize_workspace(&query.workspace_id)?;
     }
 
-    fs::write(format!("{path}/src/lib.rs"), body.lib_rs.as_str()).unwrap();
-    fs::write(format!("{path}/Cargo.toml"), body.cargo_toml.as_str()).unwrap();
-    fs::write(format!("{path}/index.html"), include_str!("user.html")).unwrap();
+    fs::write(format!("{path}/src/lib.rs"), body.lib_rs.as_str())?;
+    fs::write(format!("{path}/Cargo.toml"), body.cargo_toml.as_str())?;
+    fs::write(format!("{path}/index.html"), include_str!("user.html"))?;
 
-    println!("workspace PATH: {}", path);
-    let mut child = Command::new("trunk")
-        .current_dir(&path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .arg("build")
-        .spawn()
-        .map_err(|e| {
-            actix_web::error::ErrorInternalServerError(format!("failed to start trunk build: {e}",))
-        })?;
+    let mut child = streaming_responder.stream_command(
+        Command::new("trunk")
+            .arg("build")
+            .current_dir(&path)
+            .env("RUST_LOG", "info"),
+    )?;
 
-    let stdout = child.stdout.take().ok_or_else(|| {
-        actix_web::error::ErrorInternalServerError("failed to capture trunk build stdout")
-    })?;
-    let stderr = child.stderr.take().ok_or_else(|| {
-        actix_web::error::ErrorInternalServerError("failed to capture trunk build stderr")
-    })?;
-
-    let streaming_responder = StreamingResponder::new();
-
-    let stdout_sender = streaming_responder.new_sender();
-    let stderr_sender = streaming_responder.new_sender();
-    let finished_sender = streaming_responder.new_sender();
-
-    // TODO: Shouldn't these be async?
-    thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                let _ = stdout_sender.send(StreamEvent::StdoutLine(line.trim().into()));
-            }
-        }
-    });
-    thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                let _ = stderr_sender.send(StreamEvent::StderrLine(line.trim().into()));
-            }
-        }
-    });
-
+    let finish_sender = streaming_responder.new_sender();
     thread::spawn(move || match child.wait() {
         Ok(status) if status.success() => {
-            _ = finished_sender.send(StreamEvent::DownloadInfo(DownloadInfo {
+            _ = finish_sender.send(StreamEvent::DownloadInfo(DownloadInfo {
                 js_download_url: format!("/workspaces/{}/dist/sheeet-lib.js", query.workspace_id),
                 wasm_download_url: format!(
                     "/workspaces/{}/dist/sheeet-lib_bg.wasm",
@@ -153,11 +158,11 @@ async fn compile(
             println!("Build completed successfully");
         }
         Ok(status) => {
-            _ = finished_sender.send(StreamEvent::Error(format!("build failed: {status}")));
+            _ = finish_sender.send(StreamEvent::Error(format!("build failed: {status}")));
             println!("Build failed");
         }
         Err(err) => {
-            _ = finished_sender.send(StreamEvent::Error(format!("build failed with err: {err}")));
+            _ = finish_sender.send(StreamEvent::Error(format!("build failed with err: {err}")));
             println!("Build failed with err");
         }
     });
