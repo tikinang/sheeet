@@ -5,9 +5,10 @@ body {
 
 code {
     display: block;
-    white-space: pre;
-    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-y: scroll;
     padding: 1rem;
+    height: 50vh;
 }
 
 code:focus {
@@ -21,10 +22,33 @@ code:focus {
 }
 
 #logs {
-    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-y: scroll;
+    height: max-content;
 }
 
 .log-entry {
     margin: 2px 0;
-    white-space: pre-wrap;
+}
+
+.tab-content {
+    display: none;
+}
+
+:has(#tab-cargo-toml:checked) #cargo-toml-content,
+:has(#tab-lib-rs:checked) #lib-rs-content {
+    display: block;
+}
+
+.loading::after {
+    content: '';
+    animation: dots 2s steps(4, end) infinite;
+}
+
+@keyframes dots {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+    100% { content: ''; }
 }

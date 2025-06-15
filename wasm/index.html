@@ -19,11 +19,18 @@
 </div>
 
 <div>
-    <code contenteditable="true" id="cargo-toml-content"></code>
+    <div>
+        <input type="radio" name="tabs" id="tab-cargo-toml">
+        <label for="tab-cargo-toml">Cargo.toml</label>
+
+        <input type="radio" name="tabs" id="tab-lib-rs" checked>
+        <label for="tab-lib-rs">src/lib.rs</label>
+    </div>
     <hr>
-    <code contenteditable="true" id="lib-rs-content"></code>
+    <code contenteditable="true" id="cargo-toml-content" class="tab-content"></code>
+    <code contenteditable="true" id="lib-rs-content" class="tab-content"></code>
     <hr>
-    <p>hit CTRL+Enter to re-compile (while focused on the editor)</p>
+    <p>hit CTRL+Enter to re-compile</p>
     <code id="logs"></code>
 </div>
 
@@ -65,9 +72,17 @@
         logsContainer.scrollTop = logsContainer.scrollHeight;
     }
 
+    function setStatusMessage(message, loading = false) {
+        const el = document.getElementById('my-result');
+        el.textContent = message
+        el.className = loading ? "loading" : "";
+    }
+    
+    window.setStatusMessage = setStatusMessage;
+
     async function compile() {
-        document.getElementById('my-result').textContent = "Compiling...";
-        
+        setStatusMessage("Compiling", true);
+
         let url = `${window.API_BASE_URL}/compile`
         let workspaceId = localStorage.getItem("workspace-id");
         if (workspaceId !== null) {
@@ -89,7 +104,7 @@
             if (response.status === 404) {
                 localStorage.removeItem("workspace-id");
             }
-            document.getElementById('my-result').textContent = `HTTP error: ${response.status} (try pressing F5)`
+            setStatusMessage(`HTTP error: ${response.status} (try pressing F5)`);
             return;
         }
 
@@ -129,15 +144,15 @@
                 } else if (parsed.log !== undefined) {
                     appendLog(logsContainer, parsed.log);
                 } else if (parsed.error !== undefined) {
-                    document.getElementById('my-result').textContent = `Compile error: ${parsed.error}` ;
+                    setStatusMessage(`Compile error: ${parsed.error}`);
                     return;
                 } else if (parsed.download_info !== undefined) {
                     await loadWasmBindgenModule(
                         `${window.API_BASE_URL}${parsed.download_info.js_download_url}`,
                         `${window.API_BASE_URL}${parsed.download_info.wasm_download_url}`,
                     );
-                    localStorage.setItem("workspace-id", parsed.download_info.workspace_id)
-                    document.getElementById('my-result').textContent = "Successfully compiled, enter your expression above.";
+                    localStorage.setItem("workspace-id", parsed.download_info.workspace_id);
+                    setStatusMessage("Successfully compiled, enter your expression above.");
                 } else {
                     console.error("unknown SSE message:", parsed)
                 }
@@ -153,15 +168,17 @@
         const element = document.getElementById(key)
         element.textContent = content
         localStorage.setItem(key, content)
-
-        element.addEventListener('keydown', async function (event) {
-            if (event.ctrlKey && event.key === 'Enter') {
-                event.preventDefault();
-                saveCode(element)
-                await compile();
-            }
-        });
     }
+
+
+    window.addEventListener('keydown', async function (event) {
+        if (event.ctrlKey && event.key === 'Enter') {
+            event.preventDefault();
+            saveCode(document.getElementById("cargo-toml-content"))
+            saveCode(document.getElementById("lib-rs-content"))
+            await compile();
+        }
+    });
 
     function saveCode(element) {
         localStorage.setItem(element.id, element.textContent)
@@ -213,7 +230,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
     document.getElementById('my-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const input = document.getElementById('my-expression').value;
-        document.getElementById('my-result').textContent = await window.wasmBindings.run_evaluate(input);
+        window.setStatusMessage(await window.wasmBindings.run_evaluate(input));
     });
 </script>
 
