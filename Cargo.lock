@@ -1319,6 +1319,7 @@ dependencies = [
  "bytes",
  "env_logger",
  "futures-util",
+ "log",
  "rand",
  "serde",
  "serde_json",

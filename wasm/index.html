@@ -56,23 +56,6 @@
         window.userWasmModule = userWasmModule;
     }
 
-    async function initializeWorkspace() {
-        let workspaceId = localStorage.getItem("workspace-id");
-        if (workspaceId === null) {
-            const response = await fetch(`${window.API_BASE_URL}/initialize`, {
-                method: 'POST',
-                headers: {
-                    "Content-Type": "application/json",
-                },
-            })
-            await response.json().then(async (body) => {
-                localStorage.setItem("workspace-id", body.workspace_id)
-                workspaceId = body.workspace_id
-            });
-        }
-        return workspaceId
-    }
-
     function appendLog(logsContainer, message) {
         const logEntry = document.createElement('p');
         logEntry.textContent = message;
@@ -82,9 +65,13 @@
     }
 
     async function compile() {
-        const workspaceId = await initializeWorkspace();
-        const logsContainer = document.getElementById('logs');
-        const response = await fetch(`${window.API_BASE_URL}/compile?workspace_id=${workspaceId}`, {
+        let url = `${window.API_BASE_URL}/compile`
+        let workspaceId = localStorage.getItem("workspace-id");
+        if (workspaceId !== null) {
+            url = url + `?workspace_id=${workspaceId}`
+        }
+        
+        const response = await fetch(url, {
             method: 'PUT',
             headers: {
                 "Content-Type": "application/json",
@@ -103,6 +90,7 @@
         const decoder = new TextDecoder();
         let buffer = '';
 
+        const logsContainer = document.getElementById('logs');
         while (true) {
             const {done, value} = await reader.read();
 
@@ -138,6 +126,7 @@
                         `${window.API_BASE_URL}${parsed.download_info.js_download_url}`,
                         `${window.API_BASE_URL}${parsed.download_info.wasm_download_url}`,
                     );
+                    localStorage.setItem("workspace-id", parsed.download_info.workspace_id)
                 } else {
                     console.error("unknown SSE message:", parsed)
                 }

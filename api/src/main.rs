@@ -1,13 +1,15 @@
 use actix_cors::Cors;
 use actix_files::Files;
-use actix_web::{post, put, web, App, Error, HttpResponse, HttpServer};
 // TODO: Can be replaced with std lib?
+use actix_web::{post, put, web, App, Error, HttpResponse, HttpServer};
 use bytes::Bytes;
 use futures_util::stream::{self, StreamExt};
 use futures_util::Stream;
+use log::info;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -15,7 +17,7 @@ use std::{env, fs, thread};
 
 #[derive(Deserialize)]
 struct CompileQuery {
-    workspace_id: String,
+    workspace_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -28,6 +30,7 @@ struct CompileBody {
 struct DownloadInfo {
     js_download_url: String,
     wasm_download_url: String,
+    workspace_id: String,
 }
 
 #[derive(Serialize)]
@@ -48,6 +51,10 @@ impl StreamingResponder {
     fn new() -> Self {
         let (sender, receiver) = mpsc::channel();
         StreamingResponder { receiver, sender }
+    }
+
+    fn log_line(&self, line: String, line_constructor: fn(String) -> StreamEvent) {
+        _ = self.sender.send(line_constructor(line));
     }
 
     fn stream_command(&self, command: &mut Command) -> Result<std::process::Child, Error> {
@@ -109,7 +116,7 @@ impl StreamingResponder {
                 serde_json::to_string(&event)?
             ))),
             Err(err) => Ok(Bytes::from(format!(
-                "data: {}\n\n",
+                "data: {}\n",
                 serde_json::to_string(&StreamEvent::Error(err.to_string()))?
             ))),
         })
@@ -118,53 +125,67 @@ impl StreamingResponder {
 
 #[put("/compile")]
 async fn compile(
+    config: web::Data<AppConfig>,
     body: web::Json<CompileBody>,
     query: web::Query<CompileQuery>,
 ) -> Result<HttpResponse, Error> {
+    let fresh_workspace = query.workspace_id.is_none();
+    let workspace_id = query.workspace_id.clone().unwrap_or_else(|| {
+        rand::rng()
+            .sample_iter(&rand::distr::Alphabetic)
+            .take(12)
+            .map(char::from)
+            .map(|c| c.to_ascii_lowercase())
+            .collect()
+    });
+    info!("compile for workspace ID: {workspace_id}");
+
     let streaming_responder = StreamingResponder::new();
 
-    let path = format!(
-        "{}/{}",
-        env::var(ENV_KEY_API_WORKSPACES_PATH).unwrap_or(DEFAULT_WORKSPACES_PATH.into()),
-        &query.workspace_id
-    );
-
-    if !fs::exists(&path)? {
-        // TODO: This is wrong and temporary. Users should not be allowed to use their own workspace IDs.
-        initialize_workspace(&query.workspace_id)?;
+    let workspace_path = Path::new(&config.workspaces_path).join(&workspace_id);
+    if !fs::exists(&workspace_path)? {
+        if !fresh_workspace {
+            return Ok(HttpResponse::BadRequest().body("Invalid workspace ID"));
+        }
+        initialize_workspace(&workspace_path)?;
     }
 
-    fs::write(format!("{path}/src/lib.rs"), body.lib_rs.as_str())?;
-    fs::write(format!("{path}/Cargo.toml"), body.cargo_toml.as_str())?;
-    fs::write(format!("{path}/index.html"), include_str!("user.html"))?;
+    fs::write(Path::new(&workspace_path).join("src/lib.rs"), &body.lib_rs)?;
+    fs::write(
+        Path::new(&workspace_path).join("Cargo.toml"),
+        &body.cargo_toml,
+    )?;
 
     let mut child = streaming_responder.stream_command(
         Command::new("trunk")
             .arg("build")
-            .current_dir(&path)
+            .current_dir(&workspace_path)
             .env("RUST_LOG", "info"),
     )?;
 
     let finish_sender = streaming_responder.new_sender();
-    thread::spawn(move || match child.wait() {
-        Ok(status) if status.success() => {
-            _ = finish_sender.send(StreamEvent::DownloadInfo(DownloadInfo {
-                js_download_url: format!("/workspaces/{}/dist/sheeet-lib.js", query.workspace_id),
-                wasm_download_url: format!(
-                    "/workspaces/{}/dist/sheeet-lib_bg.wasm",
-                    query.workspace_id
-                ),
-            }));
-            println!("Build completed successfully");
-        }
-        Ok(status) => {
-            _ = finish_sender.send(StreamEvent::Error(format!("build failed: {status}")));
-            println!("Build failed");
-        }
-        Err(err) => {
-            _ = finish_sender.send(StreamEvent::Error(format!("build failed with err: {err}")));
-            println!("Build failed with err");
-        }
+    thread::spawn(move || {
+        _ = finish_sender.send(match child.wait() {
+            Ok(status) if status.success() => {
+                StreamEvent::DownloadInfo(DownloadInfo {
+                    js_download_url: Path::new("/workspaces")
+                        .join(&workspace_id)
+                        .join("dist/sheeet-lib.js")
+                        .to_str()
+                        .unwrap() // I build the complete path myself with UTF-8 chars only.
+                        .into(),
+                    wasm_download_url: Path::new("/workspaces")
+                        .join(&workspace_id)
+                        .join("dist/sheeet-lib_bg.wasm")
+                        .to_str()
+                        .unwrap() // I build the complete path myself with UTF-8 chars only.
+                        .into(),
+                    workspace_id,
+                })
+            }
+            Ok(status) => StreamEvent::Error(format!("build failed: {status}")),
+            Err(err) => StreamEvent::Error(format!("build failed with err: {err}")),
+        })
     });
 
     Ok(HttpResponse::Ok()
@@ -172,33 +193,11 @@ async fn compile(
         .streaming(streaming_responder.produce_stream()))
 }
 
-#[derive(Serialize)]
-struct InitializeResponse {
-    workspace_id: String,
-}
-
-#[post("/initialize")]
-async fn initialize() -> Result<HttpResponse, Error> {
-    let workspace_id: String = rand::rng()
-        .sample_iter(&rand::distr::Alphabetic)
-        .take(12)
-        .map(char::from)
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
-    println!("{}", workspace_id);
-
-    initialize_workspace(&workspace_id)?;
-
-    Ok(HttpResponse::Ok().json(InitializeResponse { workspace_id }))
-}
-
-fn initialize_workspace(workspace_id: &str) -> Result<(), Error> {
-    let path = format! {"{}/{}", env::var(ENV_KEY_API_WORKSPACES_PATH).unwrap_or(DEFAULT_WORKSPACES_PATH.into()), &workspace_id};
-
-    match fs::create_dir_all(&path) {
+fn initialize_workspace(workspace_path: &PathBuf) -> Result<(), Error> {
+    match fs::create_dir_all(&workspace_path) {
         Err(error) => {
             return Err(actix_web::error::ErrorInternalServerError(format!(
-                "create dir all '{path}': {}",
+                "create dir all '{workspace_path:?}': {}",
                 error.to_string()
             )));
         }
@@ -206,7 +205,7 @@ fn initialize_workspace(workspace_id: &str) -> Result<(), Error> {
     };
 
     match Command::new("cargo")
-        .current_dir(&path)
+        .current_dir(workspace_path)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .arg("init")
@@ -217,7 +216,7 @@ fn initialize_workspace(workspace_id: &str) -> Result<(), Error> {
     {
         Err(error) => {
             return Err(actix_web::error::ErrorInternalServerError(format!(
-                "run cargo init: '{path}': {}",
+                "run cargo init: '{workspace_path:?}': {}",
                 error.to_string()
             )));
         }
@@ -231,18 +230,28 @@ fn initialize_workspace(workspace_id: &str) -> Result<(), Error> {
         }
     };
 
+    fs::write(
+        Path::new(&workspace_path).join("index.html"),
+        include_str!("user.html"),
+    )?;
+
     Ok(())
 }
 
-// TODO: Improve configurability.
-const DEFAULT_WORKSPACES_PATH: &str = "/home/tikinang/workspaces";
-const ENV_KEY_API_WORKSPACES_PATH: &str = "WORKSPACES_PATH";
+struct AppConfig {
+    workspaces_path: String,
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
 
-    HttpServer::new(|| {
+    HttpServer::new(move || {
+        let app_config = AppConfig {
+            workspaces_path: env::var("WORKSPACES_PATH")
+                .unwrap_or("/home/tikinang/workspaces".into()),
+        };
+
         // TODO: CORS.
         let cors = Cors::default()
             .allow_any_origin()
@@ -250,13 +259,10 @@ async fn main() -> std::io::Result<()> {
             .allow_any_header();
 
         App::new()
-            .service(Files::new(
-                "/workspaces",
-                env::var(ENV_KEY_API_WORKSPACES_PATH).unwrap_or(DEFAULT_WORKSPACES_PATH.into()),
-            ))
+            .service(Files::new("/workspaces", &app_config.workspaces_path))
+            .app_data(web::Data::new(app_config))
             .wrap(cors)
             .service(compile)
-            .service(initialize)
     })
     .bind(("0.0.0.0", 8080))?
     .workers(4)
