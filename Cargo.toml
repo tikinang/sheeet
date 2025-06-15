@@ -2,6 +2,7 @@
 resolver = "3"
 members = ["api", "wasm"]
 
+# TODO: Not used.
 [profile.release-wasm]
 inherits = "release"
 opt-level = "s"

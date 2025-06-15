@@ -83,6 +83,9 @@
         })
 
         if (!response.ok) {
+            if (response.status === 404) {
+                localStorage.removeItem("workspace-id");
+            } 
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
@@ -119,7 +122,10 @@
                     appendLog(logsContainer, parsed.stdout_line);
                 } else if (parsed.stderr_line !== undefined) {
                     appendLog(logsContainer, parsed.stderr_line);
+                } else if (parsed.log !== undefined) {
+                    appendLog(logsContainer, parsed.log);
                 } else if (parsed.error !== undefined) {
+                    // TODO(tikinang): Handle differently, terminate.
                     appendLog(logsContainer, parsed.error);
                 } else if (parsed.download_info !== undefined) {
                     await loadWasmBindgenModule(

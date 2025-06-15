@@ -1,7 +1,6 @@
 use actix_cors::Cors;
 use actix_files::Files;
-// TODO: Can be replaced with std lib?
-use actix_web::{post, put, web, App, Error, HttpResponse, HttpServer};
+use actix_web::{put, web, App, Error, HttpResponse, HttpServer};
 use bytes::Bytes;
 use futures_util::stream::{self, StreamExt};
 use futures_util::Stream;
@@ -11,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
 use std::{env, fs, thread};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 #[derive(Deserialize)]
 struct CompileQuery {
@@ -39,22 +38,34 @@ enum StreamEvent {
     StdoutLine(String),
     StderrLine(String),
     Error(String),
+    Log(String),
     DownloadInfo(DownloadInfo),
 }
 
 struct StreamingResponder {
-    receiver: Receiver<StreamEvent>,
-    sender: Sender<StreamEvent>,
+    receiver: Option<UnboundedReceiver<StreamEvent>>,
+    sender: UnboundedSender<StreamEvent>,
 }
 
 impl StreamingResponder {
     fn new() -> Self {
-        let (sender, receiver) = mpsc::channel();
-        StreamingResponder { receiver, sender }
+        let (sender, receiver) = mpsc::unbounded_channel();
+        StreamingResponder {
+            receiver: Some(receiver),
+            sender,
+        }
     }
 
-    fn log_line(&self, line: String, line_constructor: fn(String) -> StreamEvent) {
-        _ = self.sender.send(line_constructor(line));
+    fn send_event(&self, stream_event: StreamEvent) {
+        _ = self.sender.send(stream_event);
+    }
+
+    fn log(&self, line: String) {
+        _ = self.sender.send(StreamEvent::Log(line));
+    }
+
+    fn terminate_error(&self, err: impl ToString) {
+        _ = self.sender.send(StreamEvent::Error(err.to_string()));
     }
 
     fn stream_command(&self, command: &mut Command) -> Result<std::process::Child, Error> {
@@ -86,7 +97,7 @@ impl StreamingResponder {
         pipe: impl Read + Send + 'static,
         line_constructor: fn(String) -> StreamEvent,
     ) {
-        let sender = self.new_sender();
+        let sender = self.sender.clone();
         // TODO: Shouldn't this be async?
         thread::spawn(move || {
             let reader = BufReader::new(pipe);
@@ -98,27 +109,20 @@ impl StreamingResponder {
         });
     }
 
-    fn new_sender(&self) -> Sender<StreamEvent> {
-        self.sender.clone()
-    }
-
+    // TODO: Update docs.
     /// Consumes the responder and produces stream of all messages that receiver will receive.
-    fn produce_stream(self) -> impl Stream<Item = Result<Bytes, Error>> + 'static {
-        stream::unfold(self.receiver, |receiver| async move {
-            if let Ok(line) = receiver.recv() {
-                return Some((Ok(line), receiver));
+    fn produce_stream(&mut self) -> impl Stream<Item = Result<Bytes, Error>> + 'static {
+        stream::unfold(self.receiver.take().unwrap(), |mut receiver| async move {
+            match receiver.recv().await {
+                Some(event) => Some((event, receiver)),
+                None => None,
             }
-            None // Channel closed.
         })
-        .map(|result: Result<_, Error>| match result {
-            Ok(event) => Ok(Bytes::from(format!(
+        .map(|event: StreamEvent| {
+            Ok(Bytes::from(format!(
                 "data: {}\n",
                 serde_json::to_string(&event)?
-            ))),
-            Err(err) => Ok(Bytes::from(format!(
-                "data: {}\n",
-                serde_json::to_string(&StreamEvent::Error(err.to_string()))?
-            ))),
+            )))
         })
     }
 }
@@ -129,7 +133,6 @@ async fn compile(
     body: web::Json<CompileBody>,
     query: web::Query<CompileQuery>,
 ) -> Result<HttpResponse, Error> {
-    let fresh_workspace = query.workspace_id.is_none();
     let workspace_id = query.workspace_id.clone().unwrap_or_else(|| {
         rand::rng()
             .sample_iter(&rand::distr::Alphabetic)
@@ -139,35 +142,91 @@ async fn compile(
             .collect()
     });
     info!("compile for workspace ID: {workspace_id}");
-
-    let streaming_responder = StreamingResponder::new();
-
     let workspace_path = Path::new(&config.workspaces_path).join(&workspace_id);
     if !fs::exists(&workspace_path)? {
-        if !fresh_workspace {
-            return Ok(HttpResponse::BadRequest().body("Invalid workspace ID"));
+        if query.workspace_id.is_some() {
+            return Ok(HttpResponse::NotFound().body("Invalid workspace ID"));
         }
-        initialize_workspace(&workspace_path)?;
     }
 
-    fs::write(Path::new(&workspace_path).join("src/lib.rs"), &body.lib_rs)?;
-    fs::write(
-        Path::new(&workspace_path).join("Cargo.toml"),
-        &body.cargo_toml,
-    )?;
-
-    let mut child = streaming_responder.stream_command(
-        Command::new("trunk")
-            .arg("build")
-            .current_dir(&workspace_path)
-            .env("RUST_LOG", "info"),
-    )?;
-
-    let finish_sender = streaming_responder.new_sender();
+    let mut responder = StreamingResponder::new();
+    let stream = responder.produce_stream();
     thread::spawn(move || {
-        _ = finish_sender.send(match child.wait() {
+        if !fs::exists(&workspace_path).unwrap_or(false) {
+            if let Err(err) = fs::create_dir_all(&workspace_path) {
+                responder.terminate_error(format!("create dir all '{workspace_path:?}': {err}"));
+                return;
+            };
+
+            let mut child = match responder.stream_command(
+                Command::new("cargo")
+                    .current_dir(&workspace_path)
+                    .arg("init")
+                    .arg("--lib")
+                    .arg("--name")
+                    .arg("sheeet-lib")
+                    .env("RUST_LOG", "info")
+                    .env("RUST_LOG_STYLE", "never"),
+            ) {
+                Ok(child) => child,
+                Err(err) => {
+                    responder.terminate_error(err);
+                    return;
+                }
+            };
+
+            match child.wait() {
+                Ok(status) if status.success() => {
+                    responder.log("Workspace initialized.".into());
+                }
+                Ok(status) => {
+                    responder.terminate_error(format!("build failed: {status}"));
+                    return;
+                }
+                Err(err) => {
+                    responder.terminate_error(format!("build failed with err: {err}"));
+                    return;
+                }
+            };
+
+            if let Err(err) = fs::write(
+                Path::new(&workspace_path).join("index.html"),
+                include_str!("user.html"),
+            ) {
+                responder.terminate_error(err);
+                return;
+            };
+            if let Err(err) = fs::write(Path::new(&workspace_path).join("src/lib.rs"), &body.lib_rs)
+            {
+                responder.terminate_error(err);
+                return;
+            };
+            if let Err(err) = fs::write(
+                Path::new(&workspace_path).join("Cargo.toml"),
+                &body.cargo_toml,
+            ) {
+                responder.terminate_error(err);
+                return;
+            };
+        }
+
+        let mut child = match responder.stream_command(
+            Command::new("trunk")
+                .arg("build")
+                .current_dir(&workspace_path)
+                .env("RUST_LOG", "info")
+                .env("RUST_LOG_STYLE", "never"),
+        ) {
+            Ok(child) => child,
+            Err(err) => {
+                responder.terminate_error(err);
+                return;
+            }
+        };
+
+        match child.wait() {
             Ok(status) if status.success() => {
-                StreamEvent::DownloadInfo(DownloadInfo {
+                responder.send_event(StreamEvent::DownloadInfo(DownloadInfo {
                     js_download_url: Path::new("/workspaces")
                         .join(&workspace_id)
                         .join("dist/sheeet-lib.js")
@@ -181,61 +240,22 @@ async fn compile(
                         .unwrap() // I build the complete path myself with UTF-8 chars only.
                         .into(),
                     workspace_id,
-                })
+                }));
             }
-            Ok(status) => StreamEvent::Error(format!("build failed: {status}")),
-            Err(err) => StreamEvent::Error(format!("build failed with err: {err}")),
-        })
+            Ok(status) => {
+                responder.terminate_error(format!("build failed: {status}"));
+                return;
+            }
+            Err(err) => {
+                responder.terminate_error(format!("build failed with err: {err}"));
+                return;
+            }
+        };
     });
 
     Ok(HttpResponse::Ok()
         .content_type("text/event-stream")
-        .streaming(streaming_responder.produce_stream()))
-}
-
-fn initialize_workspace(workspace_path: &PathBuf) -> Result<(), Error> {
-    match fs::create_dir_all(&workspace_path) {
-        Err(error) => {
-            return Err(actix_web::error::ErrorInternalServerError(format!(
-                "create dir all '{workspace_path:?}': {}",
-                error.to_string()
-            )));
-        }
-        _ => (),
-    };
-
-    match Command::new("cargo")
-        .current_dir(workspace_path)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .arg("init")
-        .arg("--lib")
-        .arg("--name")
-        .arg("sheeet-lib")
-        .status()
-    {
-        Err(error) => {
-            return Err(actix_web::error::ErrorInternalServerError(format!(
-                "run cargo init: '{workspace_path:?}': {}",
-                error.to_string()
-            )));
-        }
-        Ok(status) => {
-            if !status.success() {
-                return Err(actix_web::error::ErrorInternalServerError(format!(
-                    "run cargo init: exit status: {:?}",
-                    status
-                )));
-            }
-        }
-    };
-
-    fs::write(
-        Path::new(&workspace_path).join("index.html"),
-        include_str!("user.html"),
-    )?;
-
-    Ok(())
+        .streaming(stream))
 }
 
 struct AppConfig {
