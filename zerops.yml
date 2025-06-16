@@ -45,7 +45,9 @@ zerops:
       os: alpine
       base: static@latest
       envVariables:
-        API_URL: $api_zeropsSubdomain
+        # recipe value
+        # API_URL: $api_zeropsSubdomain/api
+        API_URL: https://sheeet.matejpavlicek.cz/api
       envReplace:
         delimiter: '$$'
         target: wasm/dist

@@ -277,11 +277,13 @@ async fn main() -> std::io::Result<()> {
             .allow_any_method()
             .allow_any_header();
 
-        App::new()
-            .service(Files::new("/workspaces", &app_config.workspaces_path))
-            .app_data(web::Data::new(app_config))
-            .wrap(cors)
-            .service(compile)
+        App::new().service(
+            web::scope("/api")
+                .service(Files::new("/workspaces", &app_config.workspaces_path))
+                .app_data(web::Data::new(app_config))
+                .service(compile)
+                .wrap(cors),
+        )
     })
     .bind(("0.0.0.0", 8080))?
     .workers(4)

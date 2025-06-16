@@ -6,6 +6,13 @@ Rust and WebAssembly powered spreadsheet.
 
 ---
 
+## Public Demo
+
+> [!WARNING]
+> Don't share any sensitive information in the code to be compiled.
+
+Live at: https://sheeet.matejpavlicek.cz
+
 ## TODO
 
 ### Necessary
