@@ -1,11 +1,24 @@
 body {
     background-color: black;
     color: whitesmoke;
+    margin: 0;
+}
+
+.container {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+}
+
+.half-section {
+    width: 50%;
+    height: 100%;
+    overflow-y: auto;
 }
 
 code {
     display: block;
-    white-space: pre-wrap;
+    white-space: pre;
     overflow-y: scroll;
     padding: 1rem;
     height: 50vh;
@@ -13,12 +26,6 @@ code {
 
 code:focus {
     outline: 1px solid white;
-}
-
-.container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    height: 100vh;
 }
 
 #logs {
@@ -51,4 +58,30 @@ code:focus {
     50% { content: '..'; }
     75% { content: '...'; }
     100% { content: ''; }
+}
+
+.spreadsheet-container {
+    overflow-x: auto;
+}
+
+table {
+    border-collapse: collapse;
+}
+
+th, td {
+    min-width: 6rem;
+    border-bottom: 1px solid whitesmoke;
+    border-right: 1px solid whitesmoke;
+}
+
+th:last-child, td:last-child {
+    border-right: none;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+td:focus {
+    outline: 3px solid white;
 }

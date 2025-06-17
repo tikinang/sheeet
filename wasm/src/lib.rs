@@ -31,7 +31,7 @@ const ALPHABET: [char; 26] = [
 // TODO: Make column alphabet functions simpler.
 // TODO: Change to Result instead of panic.
 
-fn column_name_to_usize(name: &str) -> usize {
+pub fn column_name_to_usize(name: &str) -> usize {
     let mut index = 0;
     for (multiplier, mut c) in name.chars().enumerate() {
         if !c.is_ascii_alphabetic() {
@@ -55,7 +55,7 @@ fn column_name_to_usize(name: &str) -> usize {
     index
 }
 
-fn usize_to_column_name(mut index: usize) -> String {
+pub fn usize_to_column_name(mut index: usize) -> String {
     let mut name = String::new();
     loop {
         let i = index % ALPHABET.len();
