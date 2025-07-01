@@ -177,23 +177,128 @@
     }
 
     document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
-        event.preventDefault();
         if (event.target.textContent.trim()) {
+            event.preventDefault();
             await window.wasmBindings.update_app_state(event.target.id, event.target.textContent.trim())
         }
     });
 
+    let selectedCell;
+    function selectCell(cell) {
+        if (!cell) {
+            return;
+        }
+        if (selectedCell) {
+            selectedCell.classList.remove("selected");
+            if (selectedCell.hasAttribute("contenteditable")) {
+                selectedCell.removeAttribute("contenteditable");
+            }
+        }
+        selectedCell = cell
+        selectedCell.classList.add("selected");
+        selectedCell.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: 'nearest'
+        });
+    }
+
+    document.getElementById("spreadsheet").addEventListener('click', async function (event) {
+        selectCell(event.target)
+    });
+
+    document.getElementById("spreadsheet").addEventListener('dblclick', async function (event) {
+        selectedCell.setAttribute("contenteditable", "true");
+        selectedCell.focus();
+    });
+
+
+    function addId(selectedId, vertical, val) {
+        const parts = selectedId.split("-")
+        if (vertical) {
+            parts[1] = Number(parts[1]) + val
+        } else {
+            parts[0] = Number(parts[0]) + val
+        }
+        return `${parts[0]}-${parts[1]}`
+    }
+
     window.addEventListener('keydown', async function (event) {
         if (event.ctrlKey) {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                saveCode(document.getElementById("cargo-toml-content"))
-                saveCode(document.getElementById("lib-rs-content"))
-                await compile();
-            } else if (event.key === 's') {
-                event.preventDefault();
-                await window.wasmBindings.save_app_state_to_local_storage()
+            switch (event.key) {
+                case 'Enter':
+                    event.preventDefault();
+                    saveCode(document.getElementById("cargo-toml-content"))
+                    saveCode(document.getElementById("lib-rs-content"))
+                    await compile();
+                    break;
+                case 's':
+                    event.preventDefault();
+                    await window.wasmBindings.save_app_state_to_local_storage()
+                    break;
             }
+            return;
+        }
+
+        switch (event.key) {
+            case 'Enter':
+                event.preventDefault();
+                if (selectedCell.hasAttribute("contenteditable")) {
+                    selectedCell.removeAttribute("contenteditable");
+                    await window.wasmBindings.update_app_state(selectedCell.id, selectedCell.textContent.trim())
+                } else {
+                    selectedCell.setAttribute("contenteditable", "true");
+                    selectedCell.focus();   
+                }
+                break;
+            case 'Escape':
+                if (!selectedCell) {
+                    break;
+                }
+                event.preventDefault();
+                if (selectedCell.hasAttribute("contenteditable")) {
+                    selectedCell.removeAttribute("contenteditable");
+                }
+                break;
+            case 'ArrowUp':
+                if (!selectedCell) {
+                    break;
+                }
+                event.preventDefault();
+                selectCell(document.getElementById(addId(selectedCell.id, true, -1)))
+                break;
+            case 'ArrowDown':
+                if (!selectedCell) {
+                    break;
+                }
+                event.preventDefault();
+                selectCell(document.getElementById(addId(selectedCell.id, true, 1)))
+                break;
+            case 'ArrowLeft':
+                if (!selectedCell) {
+                    break;
+                }
+                event.preventDefault();
+                selectCell(document.getElementById(addId(selectedCell.id, false, -1)))
+                break;
+            case 'ArrowRight':
+                if (!selectedCell) {
+                    break;
+                }
+                event.preventDefault();
+                selectCell(document.getElementById(addId(selectedCell.id, false, 1)))
+                break;
+            case 'Tab':
+                if (!selectedCell) {
+                    break;
+                }
+                event.preventDefault();
+                let val = 1
+                if (event.shiftKey) {
+                    val = -1
+                }
+                selectCell(document.getElementById(addId(selectedCell.id, false, val)))
+                break;
         }
     });
 

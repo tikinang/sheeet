@@ -85,3 +85,7 @@ tr:last-child td {
 td:focus {
     outline: 3px solid white;
 }
+
+td.selected {
+    outline: 3px solid white;
+}

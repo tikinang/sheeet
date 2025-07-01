@@ -38,15 +38,24 @@ pub fn run_evaluate(input: &str) -> JsValue {
 pub fn update_app_state(k: &str, v: &str) {
     STATE.with_borrow_mut(|state| {
         let cell_pointer = CellPointer::from_str(k);
-        match state.data.entry(cell_pointer) {
-            Occupied(mut entry) => {
-                entry.insert(v.to_string());
+
+        match &v.len() {
+            0 => {
+                state.data.remove(&cell_pointer);
+                log(&format!("removed app state entry: {k}"));
             }
-            Vacant(entry) => {
-                entry.insert(v.to_string());
+            _ => {
+                match state.data.entry(cell_pointer) {
+                    Occupied(mut entry) => {
+                        entry.insert(v.to_string());
+                    }
+                    Vacant(entry) => {
+                        entry.insert(v.to_string());
+                    }
+                };
+                log(&format!("updated app state: {k} -> {v}"));
             }
         };
-        log(&format!("updated state app: {k} -> {v}"));
     });
 }
 
@@ -184,7 +193,7 @@ fn main() -> Result<(), JsValue> {
                                 td.set_text_content(Some(&val));
                             }
                         };
-                        td.set_attribute("contenteditable", "true")?;
+                        // td.set_attribute("contenteditable", "true")?;
                         td.set_id(&format!("{column}-{row}"));
                         tr.append_with_node_1(&td)?;
                     }
