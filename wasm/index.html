@@ -176,13 +176,24 @@
         localStorage.setItem(key, content)
     }
 
+    document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
+        event.preventDefault();
+        if (event.target.textContent.trim()) {
+            await window.wasmBindings.update_app_state(event.target.id, event.target.textContent.trim())
+        }
+    });
 
     window.addEventListener('keydown', async function (event) {
-        if (event.ctrlKey && event.key === 'Enter') {
-            event.preventDefault();
-            saveCode(document.getElementById("cargo-toml-content"))
-            saveCode(document.getElementById("lib-rs-content"))
-            await compile();
+        if (event.ctrlKey) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                saveCode(document.getElementById("cargo-toml-content"))
+                saveCode(document.getElementById("lib-rs-content"))
+                await compile();
+            } else if (event.key === 's') {
+                event.preventDefault();
+                await window.wasmBindings.save_app_state_to_local_storage()
+            }
         }
     });
 

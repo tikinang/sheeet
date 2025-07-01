@@ -1,8 +1,71 @@
+use serde::de::{Error, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use std::fmt::Formatter;
 use std::ops::Index;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct CellPointer(usize, usize);
+
+impl CellPointer {
+    pub fn from_str(s: &str) -> Self {
+        let x: Vec<&str> = s.splitn(2, '-').collect();
+        CellPointer(
+            x[0].parse()
+                .expect("failed to parse first part of the cell pointer"),
+            x[1].parse()
+                .expect("failed to parse second part of the cell pointer"),
+        )
+    }
+
+    pub fn to_string(&self) -> String {
+        self.0.to_string() + "-" + &self.1.to_string()
+    }
+
+    pub fn from_column_and_row(column: usize, row: usize) -> Self {
+        CellPointer(column, row)
+    }
+}
+
+impl Serialize for CellPointer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+struct CellPointerVisitor {}
+
+impl<'de> Visitor<'de> for CellPointerVisitor {
+    type Value = CellPointer;
+
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        formatter.write_str("1-1 for pointer (1,1)")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        Ok(CellPointer::from_str(v))
+    }
+}
+
+impl CellPointerVisitor {
+    fn new() -> Self {
+        CellPointerVisitor {}
+    }
+}
+
+impl<'de> Deserialize<'de> for CellPointer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(CellPointerVisitor::new())
+    }
+}
 
 pub struct Cell {
     parents: HashMap<CellPointer, Cell>,

@@ -1,5 +1,9 @@
 use js_sys::Array;
-use sheeet_wasm::{parse_expression, usize_to_column_name, Expression};
+use serde::{Deserialize, Serialize};
+use sheeet_wasm::{parse_expression, usize_to_column_name, CellPointer, Expression};
+use std::cell::RefCell;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use web_sys::console::log_2;
 use web_sys::window;
@@ -30,6 +34,40 @@ pub fn run_evaluate(input: &str) -> JsValue {
     }
 }
 
+#[wasm_bindgen]
+pub fn update_app_state(k: &str, v: &str) {
+    STATE.with_borrow_mut(|state| {
+        let cell_pointer = CellPointer::from_str(k);
+        match state.data.entry(cell_pointer) {
+            Occupied(mut entry) => {
+                entry.insert(v.to_string());
+            }
+            Vacant(entry) => {
+                entry.insert(v.to_string());
+            }
+        };
+        log(&format!("updated state app: {k} -> {v}"));
+    });
+}
+
+#[wasm_bindgen]
+pub fn save_app_state_to_local_storage() -> Result<(), JsValue> {
+    let window = window().ok_or("could not get window")?;
+    let local_storage = window
+        .local_storage()?
+        .ok_or("could not get local storage")?;
+
+    let serialized = STATE.with_borrow(|state| {
+        serde_json::to_string(state).map_err(|err| JsValue::from(err.to_string()))
+    })?;
+
+    local_storage.set_item("sheet-data", &serialized)?;
+
+    log(&format!("saved app state to local storage:\n{serialized}"));
+
+    Ok(())
+}
+
 fn iterate_expression(expression: Expression) -> Result<JsValue, JsValue> {
     match expression {
         Expression::None => {
@@ -50,6 +88,17 @@ fn iterate_expression(expression: Expression) -> Result<JsValue, JsValue> {
     }
 }
 
+#[derive(Default, Serialize, Deserialize)]
+struct AppState {
+    sheet_bound_columns: usize,
+    sheet_bound_rows: usize,
+    data: HashMap<CellPointer, String>,
+}
+
+thread_local! {
+    static STATE: RefCell<AppState> = RefCell::new(AppState::default());
+}
+
 fn main() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
     log("log from wasm main");
@@ -59,55 +108,91 @@ fn main() -> Result<(), JsValue> {
     let spreadsheet_table = document
         .get_element_by_id("spreadsheet")
         .ok_or("could not get spreadsheet element")?;
-    // let local_storage = window.local_storage()?;
+
+    let local_storage = window
+        .local_storage()?
+        .ok_or("could not get local storage")?;
+    let (columns, rows) = match local_storage.get_item("sheet-data")? {
+        Some(data) => {
+            let saved_state: AppState =
+                serde_json::from_str(&data).map_err(|err| JsValue::from(err.to_string()))?;
+            let dimensions = (
+                saved_state.sheet_bound_columns,
+                saved_state.sheet_bound_rows,
+            );
+            STATE.with_borrow_mut(move |state| {
+                state.sheet_bound_rows = saved_state.sheet_bound_rows;
+                state.sheet_bound_columns = saved_state.sheet_bound_columns;
+                state.data = saved_state.data;
+            });
+            dimensions
+        }
+        None => {
+            let dimensions = STATE.with_borrow_mut(|state| {
+                state.sheet_bound_columns = 27;
+                state.sheet_bound_rows = 65;
+                state.data = HashMap::new();
+                (state.sheet_bound_columns, state.sheet_bound_rows)
+            });
+            dimensions
+        }
+    };
 
     let table_head = document.create_element("thead")?;
     spreadsheet_table.append_with_node_1(&table_head)?;
     let table_body = document.create_element("tbody")?;
     spreadsheet_table.append_with_node_1(&table_body)?;
 
-    const COLUMNS: usize = 27;
-    const ROWS: usize = 100;
-    for row in 0..ROWS {
-        match row {
-            0 => {
-                for column in 0..COLUMNS {
-                    let tr = match table_head.first_element_child() {
-                        Some(tr_elem) => tr_elem,
-                        None => {
-                            let tr_elem = document.create_element("tr")?;
-                            table_head.append_with_node_1(&tr_elem)?;
-                            tr_elem
-                        }
-                    };
-                    let header_val = match column {
-                        0 => "",
-                        i => &usize_to_column_name(i - 1),
-                    };
-                    let header_val = header_val.to_uppercase();
-                    let th = document.create_element("th")?;
-                    th.set_text_content(Some(&header_val));
-                    tr.append_with_node_1(&th)?;
+    STATE.with_borrow(|state| -> Result<(), JsValue> {
+        for row in 0..rows {
+            match row {
+                0 => {
+                    for column in 0..columns {
+                        let tr = match table_head.first_element_child() {
+                            Some(tr_elem) => tr_elem,
+                            None => {
+                                let tr_elem = document.create_element("tr")?;
+                                table_head.append_with_node_1(&tr_elem)?;
+                                tr_elem
+                            }
+                        };
+                        let header_val = match column {
+                            0 => "",
+                            i => &usize_to_column_name(i - 1),
+                        };
+                        let header_val = header_val.to_uppercase();
+                        let th = document.create_element("th")?;
+                        th.set_text_content(Some(&header_val));
+                        tr.append_with_node_1(&th)?;
+                    }
                 }
-            }
-            row => {
-                let tr = document.create_element("tr")?;
-                table_body.append_with_node_1(&tr)?;
-                for column in 0..COLUMNS {
-                    let val = match column {
-                        0 => row.to_string(),
-                        column => {
-                            format!("{}:{row}", usize_to_column_name(column - 1).to_uppercase())
-                        }
-                    };
-                    let td = document.create_element("td")?;
-                    td.set_text_content(Some(&val));
-                    td.set_attribute("contenteditable", "true")?;
-                    tr.append_with_node_1(&td)?;
+                row => {
+                    let tr = document.create_element("tr")?;
+                    table_body.append_with_node_1(&tr)?;
+                    for column in 0..columns {
+                        let val = match column {
+                            0 => Some(row.to_string()),
+                            column => state
+                                .data
+                                .get(&CellPointer::from_column_and_row(column, row))
+                                .map(|x| x.clone()),
+                        };
+                        let td = document.create_element("td")?;
+                        match val {
+                            None => {}
+                            Some(val) => {
+                                td.set_text_content(Some(&val));
+                            }
+                        };
+                        td.set_attribute("contenteditable", "true")?;
+                        td.set_id(&format!("{column}-{row}"));
+                        tr.append_with_node_1(&td)?;
+                    }
                 }
             }
         }
-    }
+        Ok(())
+    })?;
 
     Ok(())
 }
