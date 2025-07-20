@@ -1,10 +1,14 @@
+use js_sys::Array;
 use serde::de::{Error, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt::Formatter;
-use std::ops::Index;
+use std::fmt::{Display, Formatter};
+use std::rc::Rc;
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::JsValue;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct CellPointer(usize, usize);
 
 impl CellPointer {
@@ -27,6 +31,14 @@ impl CellPointer {
     }
 }
 
+impl Display for CellPointer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&usize_to_column_name(self.0))?;
+        f.write_str(&self.1.to_string())?;
+        Ok(())
+    }
+}
+
 impl Serialize for CellPointer {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -35,6 +47,7 @@ impl Serialize for CellPointer {
         serializer.serialize_str(&self.to_string())
     }
 }
+
 struct CellPointerVisitor {}
 
 impl<'de> Visitor<'de> for CellPointerVisitor {
@@ -67,15 +80,146 @@ impl<'de> Deserialize<'de> for CellPointer {
     }
 }
 
-pub struct Cell {
-    parents: HashMap<CellPointer, Cell>,
-    children: HashMap<CellPointer, Cell>,
-    comp_val: Option<String>,
-    expr: Option<Expression>,
+#[derive(Default)]
+pub struct State {
+    pub sheet_bounds: (usize, usize),
+    pub data: HashMap<CellPointer, CellRef>,
 }
 
+impl State {
+    pub fn new() -> Self {
+        State {
+            sheet_bounds: (27, 65),
+            data: HashMap::new(),
+        }
+    }
+
+    pub fn to_serializable(&self) -> SerializableState {
+        let mut serializable_state = SerializableState {
+            sheet_bounds: self.sheet_bounds,
+            data: HashMap::with_capacity(self.data.len()),
+        };
+        for (k, v) in &self.data {
+            serializable_state
+                .data
+                .insert(k.clone(), v.borrow().raw.clone());
+        }
+        serializable_state
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializableState {
+    pub sheet_bounds: (usize, usize),
+    pub data: HashMap<CellPointer, String>,
+}
+
+impl SerializableState {
+    pub fn to_state(self) -> Result<State, JsValue> {
+        let mut new_state = State {
+            sheet_bounds: self.sheet_bounds,
+            data: HashMap::with_capacity(self.data.len()),
+        };
+        for (k, v) in self.data {
+            let cell = new_state.new_cell(k.clone(), &v)?;
+            new_state.data.insert(k, cell);
+        }
+        for (_, v) in &new_state.data {
+            v.borrow_mut().resolve(&new_state)?;
+        }
+        Ok(new_state)
+    }
+}
+
+impl State {
+    pub fn new_cell(self: &mut Self, key: CellPointer, raw: &str) -> Result<CellRef, &'static str> {
+        let expr = parse_expression(raw)?;
+        let cell = Rc::new(RefCell::new(Cell {
+            cell_pointer: key.clone(),
+            raw: raw.to_string(),
+            parsed_expr: expr,
+            resolved: None,
+            dependencies: HashMap::new(),
+            dependents: HashMap::new(),
+        }));
+        Ok(cell)
+    }
+}
+
+pub struct Cell {
+    pub cell_pointer: CellPointer,
+    pub raw: String,
+    pub parsed_expr: Expression,
+    pub resolved: Option<JsValue>,
+    pub dependencies: HashMap<CellPointer, CellRef>,
+    pub dependents: HashMap<CellPointer, CellRef>,
+}
+
+type CellRef = Rc<RefCell<Cell>>;
+
+pub fn update_cell_dependents(cell_ref: &CellRef, state: &mut State) -> Result<(), JsValue> {
+    let cell = cell_ref.borrow_mut();
+    for (cell_pointer, dependent) in &cell.dependents {
+        log(&format!("update cell dependent: {cell_pointer}"));
+        dependent.borrow_mut().resolve(state)?;
+        update_cell_dependents(dependent, state)?;
+    }
+    Ok(())
+}
+
+#[wasm_bindgen]
+extern "C" {
+    pub fn alert(s: &str);
+
+    #[wasm_bindgen(js_namespace = console)]
+    pub fn log(s: &str);
+
+    #[wasm_bindgen(catch, js_namespace = window)]
+    pub fn js_evaluate(fn_name: &str, vars: &Array) -> Result<JsValue, JsValue>;
+}
+
+//
+// impl Serialize for Cell {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         serializer.serialize_str(&self.raw)
+//     }
+// }
+//
+// impl<'de> DeserializeSeed<'de> for Cell {
+//     type Value = Cell;
+//
+//     fn deserialize<D>(self, deserializer: D) -> Result<Self, D::Error>
+//     where
+//         D: Deserializer<'de>,
+//     {
+//         struct CellVisitor<'a> {
+//             state: &'a mut AppState,
+//         }
+//
+//         impl<'de, 'a> Visitor<'de> for CellVisitor<'a> {
+//             type Value = Cell;
+//
+//             fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+//                 formatter.write_str("parsable expression")
+//             }
+//
+//             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+//             where
+//                 E: Error,
+//             {
+//                 Cell::from_str(v).map_err(|err| Error::custom(err))
+//             }
+//         }
+//
+//         deserializer.deserialize_str(CellVisitor::new())
+//     }
+// }
+
 /// =add(A, sub(4, 2))
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     None,
     Function {
@@ -84,6 +228,85 @@ pub enum Expression {
     },
     Reference(Reference),
     Value(String),
+}
+
+impl Cell {
+    pub fn resolve(self: &mut Self, state: &State) -> Result<JsValue, JsValue> {
+        match &self.resolved {
+            Some(resolved) => Ok(resolved.clone()),
+            None => {
+                let resolved_val = self.resolve_expression(state, None)?;
+                self.resolved = Some(resolved_val.clone());
+                log(&format!(
+                    "set resolved: {} -> {resolved_val:?}",
+                    self.cell_pointer
+                ));
+                Ok(resolved_val)
+            }
+        }
+    }
+
+    pub fn resolve_expression(
+        self: &mut Self,
+        state: &State,
+        expression: Option<Expression>,
+    ) -> Result<JsValue, JsValue> {
+        let expression = expression.unwrap_or(self.parsed_expr.clone());
+        match expression {
+            Expression::None => {
+                todo!("remove None expression, use option")
+            }
+            Expression::Function { name, inputs } => {
+                let js_inputs = Array::new();
+                for input in inputs {
+                    let val = self.resolve_expression(state, Some(input))?;
+                    js_inputs.push(&val);
+                }
+                js_evaluate(&name, &js_inputs)
+            }
+            Expression::Reference(reference) => match reference {
+                Reference::Single(cell_pointer) => {
+                    log(&format!("resolve single: {cell_pointer}"));
+                    let target_cell_ref = state
+                        .data
+                        .get(&cell_pointer)
+                        .map(|cell_ref| cell_ref.clone());
+                    match target_cell_ref {
+                        Some(target_cell_ref) => {
+                            let resolved_value = target_cell_ref.borrow().resolved.clone();
+                            log(&format!(
+                                "resolve single: {cell_pointer} -> {resolved_value:?}"
+                            ));
+                            if let Some(self_cell_ref) = state.data.get(&cell_pointer) {
+                                log(&format!("insert cell dependent: {cell_pointer}"));
+                                target_cell_ref
+                                    .borrow_mut()
+                                    .dependents
+                                    .insert(cell_pointer.clone(), self_cell_ref.clone());
+                            };
+                            self.dependencies
+                                .insert(cell_pointer.clone(), target_cell_ref.clone());
+                            match resolved_value {
+                                Some(resolved) => Ok(resolved),
+                                None => {
+                                    // Here we are not resolved yet.
+                                    log(&format!("resolve stuff: {cell_pointer}"));
+                                    target_cell_ref.borrow_mut().resolve(state)
+                                }
+                            }
+                        }
+                        None => Err(JsValue::from_str(&format!(
+                            "reference '{cell_pointer}' not found"
+                        ))),
+                    }
+                }
+                Reference::BoundedRange(_, _) => todo!("bounded range"),
+                Reference::UnboundedColRange(_, _) => todo!("unbounded col range"),
+                Reference::UnboundedRowRange(_, _) => todo!("unbounded row range"),
+            },
+            Expression::Value(val) => Ok(JsValue::from_str(&val)),
+        }
+    }
 }
 
 const ALPHABET: [char; 26] = [
@@ -115,10 +338,13 @@ pub fn column_name_to_usize(name: &str) -> usize {
             .expect(&format!("column name char '{c}' not found in the alphabet"));
         index = i + (multiplier * ALPHABET.len())
     }
-    index
+    index + 1
 }
 
 pub fn usize_to_column_name(mut index: usize) -> String {
+    if index != 0 {
+        index -= 1
+    }
     let mut name = String::new();
     loop {
         let i = index % ALPHABET.len();
@@ -139,7 +365,7 @@ pub fn usize_to_column_name(mut index: usize) -> String {
 }
 
 /// A2, A1:A5, A1:A, A1:1, AA1:AA5
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Reference {
     Single(CellPointer),
     BoundedRange(CellPointer, CellPointer),
@@ -361,8 +587,8 @@ mod tests {
                 Function {
                     name: String::from("add"),
                     inputs: vec![
-                        Expression::Reference(Reference::Single(CellPointer(0, 2))),
-                        Expression::Reference(Reference::UnboundedColRange(CellPointer(0, 0), 0)),
+                        Expression::Reference(Reference::Single(CellPointer(1, 2))),
+                        Expression::Reference(Reference::UnboundedColRange(CellPointer(1, 0), 1)),
                         Value(String::from("5")),
                     ],
                 }
@@ -393,16 +619,16 @@ mod tests {
 
     #[test]
     fn test_column_name() {
-        assert_eq!(column_name_to_usize("A"), 0);
-        assert_eq!(column_name_to_usize("a"), 0);
-        assert_eq!(column_name_to_usize("Z"), 25);
-        assert_eq!(column_name_to_usize("AA"), 26);
-        assert_eq!(column_name_to_usize("AAB"), 53);
+        assert_eq!(column_name_to_usize("A"), 1);
+        assert_eq!(column_name_to_usize("a"), 1);
+        assert_eq!(column_name_to_usize("Z"), 26);
+        assert_eq!(column_name_to_usize("AA"), 27);
+        assert_eq!(column_name_to_usize("AAB"), 54);
 
-        assert_eq!(usize_to_column_name(0), "a");
-        assert_eq!(usize_to_column_name(25), "z");
-        assert_eq!(usize_to_column_name(26), "aa");
-        assert_eq!(usize_to_column_name(53), "aab");
+        assert_eq!(usize_to_column_name(1), "a");
+        assert_eq!(usize_to_column_name(26), "z");
+        assert_eq!(usize_to_column_name(27), "aa");
+        assert_eq!(usize_to_column_name(54), "aab");
 
         {
             let input = "a";
@@ -433,31 +659,31 @@ mod tests {
         // A1, A0, A1:A5, A1:B5, A1:A, A1:1, A100:AB150
         assert_eq!(
             Reference::parse("A1").unwrap(),
-            Reference::Single(CellPointer(0, 1))
+            Reference::Single(CellPointer(1, 1))
         );
         assert_eq!(
             Reference::parse("A0").unwrap(),
-            Reference::Single(CellPointer(0, 0))
+            Reference::Single(CellPointer(1, 0))
         );
         assert_eq!(
             Reference::parse("A1:A5").unwrap(),
-            Reference::BoundedRange(CellPointer(0, 1), CellPointer(0, 5))
+            Reference::BoundedRange(CellPointer(1, 1), CellPointer(1, 5))
         );
         assert_eq!(
             Reference::parse("A1:B5").unwrap(),
-            Reference::BoundedRange(CellPointer(0, 1), CellPointer(1, 5))
+            Reference::BoundedRange(CellPointer(1, 1), CellPointer(2, 5))
         );
         assert_eq!(
             Reference::parse("A1:A").unwrap(),
-            Reference::UnboundedColRange(CellPointer(0, 1), 0)
+            Reference::UnboundedColRange(CellPointer(1, 1), 1)
         );
         assert_eq!(
             Reference::parse("A1:1").unwrap(),
-            Reference::UnboundedRowRange(CellPointer(0, 1), 1)
+            Reference::UnboundedRowRange(CellPointer(1, 1), 1)
         );
         assert_eq!(
             Reference::parse("A100:AB150").unwrap(),
-            Reference::BoundedRange(CellPointer(0, 100), CellPointer(27, 150))
+            Reference::BoundedRange(CellPointer(1, 100), CellPointer(28, 150))
         );
 
         Reference::parse("1").expect_err("expected err");

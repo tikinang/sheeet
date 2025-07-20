@@ -57,7 +57,7 @@
 
     // This function is called from Rust to evaluate the user functions.
     // TODO: I am really not sure about performance of this, it is a working prototype.
-    window.evaluate = function (fnName, vars) {
+    window.js_evaluate = function (fnName, vars) {
         return window.userWasmModule[fnName](...vars)
     }
 
@@ -159,6 +159,7 @@
                     );
                     localStorage.setItem("workspace-id", parsed.download_info.workspace_id);
                     setStatusMessage("Successfully compiled, enter your expression above.");
+                    window.wasmBindings.init_app();
                 } else {
                     console.error("unknown SSE message:", parsed)
                 }
@@ -179,7 +180,8 @@
     document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
         if (event.target.textContent.trim()) {
             event.preventDefault();
-            await window.wasmBindings.update_app_state(event.target.id, event.target.textContent.trim())
+            console.debug("in focusout")
+            event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim())
         }
     });
 
@@ -207,10 +209,11 @@
         selectCell(event.target)
     });
 
-    document.getElementById("spreadsheet").addEventListener('dblclick', async function (event) {
-        selectedCell.setAttribute("contenteditable", "true");
-        selectedCell.focus();
-    });
+    // document.getElementById("spreadsheet").addEventListener('dblclick', async function (event) {
+    //     selectedCell.textContent = window.wasmBindings.get_cell_raw_value(selectedCell.id)
+    //     selectedCell.setAttribute("contenteditable", "true");
+    //     selectedCell.focus();
+    // });
 
 
     function addId(selectedId, vertical, val) {
@@ -242,11 +245,17 @@
 
         switch (event.key) {
             case 'Enter':
+                if (!selectedCell) {
+                    break;
+                }
                 event.preventDefault();
+                console.debug("in enter")
                 if (selectedCell.hasAttribute("contenteditable")) {
                     selectedCell.removeAttribute("contenteditable");
-                    await window.wasmBindings.update_app_state(selectedCell.id, selectedCell.textContent.trim())
                 } else {
+                    if (selectedCell.textContent.trim()) {
+                        selectedCell.textContent = window.wasmBindings.get_cell_raw_value(selectedCell.id)
+                    }
                     selectedCell.setAttribute("contenteditable", "true");
                     selectedCell.focus();   
                 }
@@ -258,38 +267,41 @@
                 event.preventDefault();
                 if (selectedCell.hasAttribute("contenteditable")) {
                     selectedCell.removeAttribute("contenteditable");
+                } else {
+                    selectedCell.classList.remove("selected");
+                    selectedCell = null
                 }
                 break;
             case 'ArrowUp':
-                if (!selectedCell) {
+                if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
                     break;
                 }
                 event.preventDefault();
                 selectCell(document.getElementById(addId(selectedCell.id, true, -1)))
                 break;
             case 'ArrowDown':
-                if (!selectedCell) {
+                if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
                     break;
                 }
                 event.preventDefault();
                 selectCell(document.getElementById(addId(selectedCell.id, true, 1)))
                 break;
             case 'ArrowLeft':
-                if (!selectedCell) {
+                if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
                     break;
                 }
                 event.preventDefault();
                 selectCell(document.getElementById(addId(selectedCell.id, false, -1)))
                 break;
             case 'ArrowRight':
-                if (!selectedCell) {
+                if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
                     break;
                 }
                 event.preventDefault();
                 selectCell(document.getElementById(addId(selectedCell.id, false, 1)))
                 break;
             case 'Tab':
-                if (!selectedCell) {
+                if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
                     break;
                 }
                 event.preventDefault();
