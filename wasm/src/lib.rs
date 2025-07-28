@@ -1,10 +1,8 @@
 use js_sys::Array;
 use serde::de::{Error, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
-use std::rc::Rc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use web_sys::window;
@@ -93,7 +91,7 @@ impl<'de> Deserialize<'de> for CellPointer {
 #[derive(Default)]
 pub struct State {
     pub sheet_bounds: (usize, usize),
-    cells: HashMap<CellPointer, CellRef>,
+    cells: HashMap<CellPointer, Cell>,
     reverse_dependents_index: HashMap<CellPointer, HashSet<CellPointer>>,
 }
 
@@ -114,7 +112,7 @@ impl State {
         for (k, v) in &self.cells {
             serializable_state
                 .data
-                .insert(k.clone(), v.borrow().raw_value.clone());
+                .insert(k.clone(), v.raw_value.clone());
         }
         serializable_state
     }
@@ -147,26 +145,26 @@ impl SerializableState {
 impl State {
     pub fn get_cell_raw_value(self: &Self, key: CellPointer) -> Option<String> {
         debug_log!("get_cell_raw_value: {key}");
-        let cell_ref = self.cells.get(&key)?;
-        Some(cell_ref.borrow().raw_value.clone())
+        let cell = self.cells.get(&key)?;
+        Some(cell.raw_value.clone())
     }
 
     pub fn get_cell_resolved_value(self: &Self, key: CellPointer) -> Option<JsValue> {
         debug_log!("get_cell_resolved_value: {key}");
-        let cell_ref = self.cells.get(&key)?;
-        cell_ref.borrow().resolved_value.clone()
+        let cell = self.cells.get(&key)?;
+        cell.resolved_value.clone()
     }
 
     pub fn insert_cell(self: &mut Self, key: CellPointer, raw: &str) -> Result<(), JsValue> {
         debug_log!("insert_cell: {key} -> {raw}");
         let expr = parse_expression(raw)?;
-        let cell = Rc::new(RefCell::new(Cell {
+        let cell = Cell {
             cell_pointer: key.clone(),
             raw_value: raw.to_string(),
             parsed_expression: expr.clone(),
             resolved_value: None,
             resolved_dependencies: None,
-        }));
+        };
         self.cells.insert(key, cell);
         Ok(())
     }
@@ -179,8 +177,8 @@ impl State {
 
     pub fn remove_cell(self: &mut Self, key: CellPointer) -> Result<(), JsValue> {
         debug_log!("remove_cell: {key}");
-        if let Some(cell_ref) = self.cells.remove(&key) {
-            if let Some(dependencies) = cell_ref.borrow_mut().resolved_dependencies.take() {
+        if let Some(mut cell) = self.cells.remove(&key) {
+            if let Some(dependencies) = cell.resolved_dependencies.take() {
                 for dependency in dependencies {
                     self.reverse_dependents_index
                         .entry(dependency)
@@ -207,20 +205,14 @@ impl State {
         debug_log!(
             "resolve_cell_value_and_dependencies: {key} ({first_level}, {update_display_value})"
         );
-        let cell_ref = self
-            .cells
-            .get(&key)
-            .map(|cell_ref| cell_ref.clone())
-            .unwrap();
-        let old_dependencies = cell_ref.borrow_mut().resolved_dependencies.take();
+        let cell = self.cells.get_mut(&key).unwrap();
+        let old_dependencies = cell.resolved_dependencies.take();
+        let parsed_expression = cell.parsed_expression.clone();
 
         let mut new_dependencies = Vec::new();
         let resolved_value = self
-            .resolve_expression_value_and_dependencies(
-                &mut new_dependencies,
-                &cell_ref.borrow().parsed_expression,
-            )
-            .unwrap_or_else(|err| format!("ERROR({err:?})").into());
+            .resolve_expression_value_and_dependencies(&mut new_dependencies, &parsed_expression)
+            .unwrap_or_else(|err| format!("ERROR: {err:?}").into());
 
         // Update cell's resolved values.
         debug_log!(
@@ -229,8 +221,10 @@ impl State {
         if update_display_value && !first_level {
             display_cell_value(key, resolved_value.clone())?;
         }
-        cell_ref.borrow_mut().resolved_value = Some(resolved_value.clone());
-        cell_ref.borrow_mut().resolved_dependencies = Some(new_dependencies.clone());
+        self.cells.entry(key).and_modify(|entry| {
+            entry.resolved_value = Some(resolved_value.clone());
+            entry.resolved_dependencies = Some(new_dependencies.clone());
+        });
 
         // Remove old dependencies from the reverse index.
         if let Some(old_dependencies) = old_dependencies {
@@ -294,36 +288,32 @@ impl State {
                 js_evaluate(&name, &js_inputs)
             }
             Expression::Reference(reference) => match reference {
-                Reference::Single(cell_pointer) => {
-                    dependencies.push(cell_pointer.clone());
-                    let target_cell_ref = self
-                        .cells
-                        .get(&cell_pointer)
-                        .map(|cell_ref| cell_ref.clone());
-                    match target_cell_ref {
-                        Some(target_cell_ref) => {
-                            let resolved_value = target_cell_ref.borrow().resolved_value.clone();
+                Reference::Single(key) => {
+                    dependencies.push(key.clone());
+                    let target_cell = self.cells.get(key);
+                    match target_cell {
+                        Some(target_cell) => {
+                            let resolved_value = target_cell.resolved_value.clone();
+                            let parsed_expression = target_cell.parsed_expression.clone();
                             match resolved_value {
-                                Some(resolved) => Ok(resolved),
+                                Some(value) => Ok(value),
                                 None => {
                                     // Here we are not resolved yet. Lazily init.
                                     let mut target_dependencies = Vec::new();
                                     let target_resolved_value = self
                                         .resolve_expression_value_and_dependencies(
                                             &mut target_dependencies,
-                                            &target_cell_ref.borrow().parsed_expression,
+                                            &parsed_expression,
                                         )?;
-                                    target_cell_ref.borrow_mut().resolved_value =
-                                        Some(target_resolved_value.clone());
-                                    target_cell_ref.borrow_mut().resolved_dependencies =
-                                        Some(target_dependencies);
+                                    self.cells.entry(key.clone()).and_modify(|entry| {
+                                        entry.resolved_value = Some(target_resolved_value.clone());
+                                        entry.resolved_dependencies = Some(target_dependencies);
+                                    });
                                     Ok(target_resolved_value)
                                 }
                             }
                         }
-                        None => Err(JsValue::from_str(&format!(
-                            "reference '{cell_pointer}' not found"
-                        ))),
+                        None => Err(JsValue::from_str(&format!("reference '{key}' not found"))),
                     }
                 }
                 Reference::BoundedRange(_, _) => todo!("bounded range"),
@@ -364,8 +354,6 @@ pub struct Cell {
     pub resolved_value: Option<JsValue>,
     pub resolved_dependencies: Option<Vec<CellPointer>>,
 }
-
-type CellRef = Rc<RefCell<Cell>>;
 
 #[wasm_bindgen]
 extern "C" {
