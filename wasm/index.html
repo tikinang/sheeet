@@ -178,14 +178,13 @@
     }
 
     document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
-        if (event.target.textContent.trim()) {
-            event.preventDefault();
-            console.debug("in focusout")
-            event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim())
-        }
+        event.preventDefault();
+        console.debug("in focusout")
+        event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim())
     });
 
     let selectedCell;
+
     function selectCell(cell) {
         if (!cell) {
             return;
@@ -257,7 +256,7 @@
                         selectedCell.textContent = window.wasmBindings.get_cell_raw_value(selectedCell.id)
                     }
                     selectedCell.setAttribute("contenteditable", "true");
-                    selectedCell.focus();   
+                    selectedCell.focus();
                 }
                 break;
             case 'Escape':

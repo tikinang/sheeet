@@ -1,46 +1,35 @@
 use sheeet_wasm::{
-    log, parse_expression, update_cell_dependents, usize_to_column_name, Cell, CellPointer, SerializableState,
+    js_value_to_string, log, parse_expression, usize_to_column_name, CellPointer, SerializableState,
     State,
 };
 use std::cell::RefCell;
-use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use web_sys::console::log_2;
 use web_sys::window;
 
 #[wasm_bindgen]
 pub fn run_evaluate(input: &str) -> JsValue {
-    let expr = parse_expression(input).unwrap();
-    let mut dummy_cell = Cell {
-        cell_pointer: CellPointer::from_column_and_row(0, 0),
-        parsed_expr: expr,
-        dependents: HashMap::new(),
-        dependencies: HashMap::new(),
-        resolved: None,
-        raw: input.to_string(),
-    };
-    STATE.with_borrow_mut(|state| match dummy_cell.resolve_expression(state, None) {
-        Ok(val) => {
-            log_2(&"evaluate ok:".into(), &val);
-            val
-        }
-        Err(err) => {
-            log_2(&"evaluate failed:".into(), &err);
-            err
+    STATE.with_borrow_mut(|state| {
+        let expression = parse_expression(input).unwrap();
+        let mut dependencies = Vec::new();
+        match state.resolve_expression_value_and_dependencies(&mut dependencies, &expression) {
+            Ok(val) => {
+                log_2(&"evaluate ok:".into(), &val);
+                val
+            }
+            Err(err) => {
+                log_2(&"evaluate failed:".into(), &err);
+                err
+            }
         }
     })
 }
 
 #[wasm_bindgen]
 pub fn get_cell_raw_value(id: &str) -> Result<String, JsValue> {
-    let cell = STATE.with_borrow(move |state| {
-        state
-            .data
-            .get(&CellPointer::from_str(id))
-            .ok_or_else(|| JsValue::from_str(&format!("expected '{id}' to be found in state")))
-            .map(|cell| cell.clone())
-    })?;
-    Ok(cell.borrow().raw.clone())
+    STATE
+        .with_borrow(|state| state.get_cell_raw_value(CellPointer::from_str(id)))
+        .ok_or_else(|| JsValue::from_str(&format!("cell raw value not found for: {id}")))
 }
 
 #[wasm_bindgen]
@@ -48,49 +37,15 @@ pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<String, JsValue> {
     STATE.with_borrow_mut(|state| {
         let cell_pointer = CellPointer::from_str(id);
         match &raw.len() {
+            // Remove.
             0 => {
-                // TODO: Update dependencies and dependents.
-                state.data.remove(&cell_pointer);
-                log(&format!("removed app state entry: {id}"));
+                state.remove_cell(cell_pointer)?;
                 Ok(String::new())
             }
+            // Upsert.
             _ => {
-                // TODO:
-                //  1. Parse expression.
-                //  2. Compute cached value (from new parents).
-                //  3. Update both old and new parents' children (delete itself from old and add itself to new).
-                //  3. Invalidate and recompute children recursively (children stay the same).
-                //  4. Upsert cell.
-                let cell_ref = state.data.get(&cell_pointer).map(|cell| cell.clone());
-                let resolved_val = match cell_ref {
-                    Some(cell_ref) => {
-                        log(&format!("update cell: {id} -> '{raw}'"));
-                        let mut cell = cell_ref.borrow_mut();
-                        cell.parsed_expr = parse_expression(raw)?;
-                        cell.raw = raw.to_string();
-                        cell.resolved = None;
-                        let resolved_value = cell.resolve(state)?;
-                        drop(cell);
-                        update_cell_dependents(&cell_ref, state)?;
-                        resolved_value
-                    }
-                    None => {
-                        log(&format!("insert new cell: {id} -> '{raw}'"));
-                        let new_cell = state.new_cell(cell_pointer.clone(), raw)?;
-                        let new_cell_clone = new_cell.clone();
-                        state.data.insert(cell_pointer, new_cell);
-                        new_cell_clone.borrow_mut().resolve(state)?
-                    }
-                };
-                Ok(if let Some(resolved_val) = resolved_val.as_string() {
-                    resolved_val
-                } else if let Some(resolved_val) = resolved_val.as_bool() {
-                    resolved_val.to_string()
-                } else if let Some(resolved_val) = resolved_val.as_f64() {
-                    resolved_val.to_string()
-                } else {
-                    format!("unknown JS value type: {:?}", resolved_val)
-                })
+                let resolved_value = state.upsert_cell(cell_pointer, raw)?;
+                Ok(js_value_to_string(resolved_value))
             }
         }
     })
@@ -104,7 +59,7 @@ pub fn save_app_state_to_local_storage() -> Result<(), JsValue> {
         .ok_or("could not get local storage")?;
 
     let serialized = STATE.with_borrow(|state| {
-        serde_json::to_string(&state.to_serializable())
+        serde_json::to_string(&state.to_serializable_state())
             .map_err(|err| JsValue::from(err.to_string()))
     })?;
 
@@ -118,7 +73,6 @@ pub fn save_app_state_to_local_storage() -> Result<(), JsValue> {
 fn main() {
     console_error_panic_hook::set_once();
     log("log from wasm main");
-    // init_app().unwrap();
 }
 
 #[wasm_bindgen]
@@ -136,7 +90,7 @@ pub fn init_app() -> Result<(), JsValue> {
         Some(data) => {
             let saved_state: SerializableState =
                 serde_json::from_str(&data).map_err(|err| JsValue::from(err.to_string()))?;
-            let state = saved_state.to_state()?;
+            let state = saved_state.to_memory_state()?;
             let bounds = state.sheet_bounds;
             STATE.set(state);
             bounds
@@ -186,32 +140,19 @@ pub fn init_app() -> Result<(), JsValue> {
                             0 => Some(row.to_string()),
                             column => {
                                 td.set_id(&format!("{}-{}", column, row));
-                                state
-                                    .data
-                                    .get(&CellPointer::from_column_and_row(column, row))
-                                    .map(|cell| match &cell.borrow().resolved {
-                                        Some(val) => {
-                                            if let Some(val) = val.as_string() {
-                                                val
-                                            } else if let Some(val) = val.as_bool() {
-                                                val.to_string()
-                                            } else if let Some(val) = val.as_f64() {
-                                                val.to_string()
-                                            } else {
-                                                format!("unknown JS value type: {:?}", val)
-                                            }
-                                        }
-                                        None => format!("unresolved value '{}'", cell.borrow().raw),
-                                    })
+                                let key = CellPointer::from_column_and_row(column, row);
+                                match state.get_cell_resolved_value(key) {
+                                    Some(value) => Some(js_value_to_string(value)),
+                                    None => match state.get_cell_raw_value(key) {
+                                        None => None,
+                                        Some(val) => Some(format!("unresolved value '{val}'")),
+                                    },
+                                }
                             }
                         };
-                        match val {
-                            None => {}
-                            Some(val) => {
-                                td.set_text_content(Some(&val));
-                            }
+                        if let Some(val) = val {
+                            td.set_text_content(Some(&val));
                         };
-                        // td.set_attribute("contenteditable", "true")?;
                         tr.append_with_node_1(&td)?;
                     }
                 }
