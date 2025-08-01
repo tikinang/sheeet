@@ -81,7 +81,7 @@
         el.textContent = message
         el.className = loading ? "loading" : "";
     }
-    
+
     async function compile() {
         setResult("Compiling", true);
 
@@ -220,7 +220,7 @@
         }
         return `${parts[0]}-${parts[1]}`
     }
-    
+
     window.addEventListener('keydown', async function (event) {
         if (event.ctrlKey) {
             switch (event.key) {
