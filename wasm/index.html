@@ -49,11 +49,10 @@
             return 'http://localhost:8080/api';
         }
 
-        // TODO(tikinang): Config or hide behind same origin with /api prefix for API.
         return '$$API_URL$$';
     }
 
-    window.API_BASE_URL = getApiBaseUrl();
+    window.apiBaseUrl = getApiBaseUrl();
 
     // This function is called from Rust to evaluate the user functions.
     // TODO: I am really not sure about performance of this, it is a working prototype.
@@ -85,7 +84,7 @@
     async function compile() {
         setResult("Compiling", true);
 
-        let url = `${window.API_BASE_URL}/compile`
+        let url = `${window.apiBaseUrl}/compile`
         let workspaceId = localStorage.getItem("workspace-id");
         if (workspaceId !== null) {
             url = url + `?workspace_id=${workspaceId}`
@@ -150,8 +149,8 @@
                     return;
                 } else if (parsed.download_info !== undefined) {
                     await loadWasmBindgenModule(
-                        `${window.API_BASE_URL}${parsed.download_info.js_download_url}`,
-                        `${window.API_BASE_URL}${parsed.download_info.wasm_download_url}`,
+                        `${window.apiBaseUrl}${parsed.download_info.js_download_url}`,
+                        `${window.apiBaseUrl}${parsed.download_info.wasm_download_url}`,
                     );
                     localStorage.setItem("workspace-id", parsed.download_info.workspace_id);
                     setResult("Successfully compiled, enter your expression above.");
@@ -203,13 +202,6 @@
     document.getElementById("spreadsheet").addEventListener('click', async function (event) {
         selectCell(event.target)
     });
-
-    // document.getElementById("spreadsheet").addEventListener('dblclick', async function (event) {
-    //     selectedCell.textContent = window.wasmBindings.get_cell_raw_value(selectedCell.id)
-    //     selectedCell.setAttribute("contenteditable", "true");
-    //     selectedCell.focus();
-    // });
-
 
     function addId(selectedId, vertical, val) {
         const parts = selectedId.split("-")
