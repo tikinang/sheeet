@@ -20,8 +20,30 @@ impl CellPointer {
         self.0.to_string() + "-" + &self.1.to_string()
     }
 
+    pub fn to_reference(&self) -> String {
+        let mut str = String::new();
+        str.push_str(&usize_to_column_name(self.0));
+        str.push_str(&self.1.to_string());
+        str
+    }
+
     pub fn from_column_and_row(column: usize, row: usize) -> Self {
         CellPointer(column, row)
+    }
+
+    pub fn add(&self, distance: (isize, isize)) -> Self {
+        CellPointer(
+            self.0.checked_add_signed(distance.0).unwrap(),
+            self.1.checked_add_signed(distance.1).unwrap(),
+        )
+    }
+
+    pub fn distance(&self, target: &Self) -> (isize, isize) {
+        // TODO: This could overflow.
+        (
+            target.0 as isize - self.0 as isize,
+            target.1 as isize - self.1 as isize,
+        )
     }
 }
 
@@ -224,6 +246,26 @@ pub fn usize_to_column_name(mut index: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_add_and_distance() {
+        assert_eq!(CellPointer(1, 1).distance(&CellPointer(2, 1)), (1, 0));
+        assert_eq!(CellPointer(10, 10).distance(&CellPointer(8, 12)), (-2, 2));
+
+        let x = CellPointer(0, 0);
+        assert_eq!(x.add((1, 0)), CellPointer(1, 0));
+        assert_eq!(x.add((0, 1)), CellPointer(0, 1));
+        assert_eq!(x.add((3, 3)), CellPointer(3, 3));
+
+        let x = CellPointer(10, 10);
+        assert_eq!(x.add((-1, 0)), CellPointer(9, 10));
+        assert_eq!(x.add((0, -1)), CellPointer(10, 9));
+        assert_eq!(x.add((-3, -3)), CellPointer(7, 7));
+
+        let x = CellPointer(9, 76);
+        let y = CellPointer(1382, 21);
+        assert_eq!(x.add(x.distance(&y)), y);
+    }
 
     #[test]
     fn test_column_name() {

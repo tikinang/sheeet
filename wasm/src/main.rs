@@ -52,6 +52,13 @@ pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<String, JsValue> {
 }
 
 #[wasm_bindgen]
+pub fn copy_cell_get_raw_value(from_id: &str, to_id: &str) -> Result<String, JsValue> {
+    STATE.with_borrow(|state| {
+        state.copy_cell_expression(CellPointer::from_str(from_id), CellPointer::from_str(to_id))
+    })
+}
+
+#[wasm_bindgen]
 pub fn save_app_state_to_local_storage() -> Result<(), JsValue> {
     let window = window().ok_or("could not get window")?;
     let local_storage = window

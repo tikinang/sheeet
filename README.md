@@ -17,9 +17,10 @@ Live at: https://sheeet.matejpavlicek.cz
 
 ### Necessary
 - [ ] implement spreadsheet functionality
-  - copy, cut, paste cells
-  - select multiple cells
+  - [x] copy, cut, paste cell
+  - select adn manipulate multiple cells
   - deselect cell out when clicking in the editor
+- [ ] support for range references
 - [ ] create public lib crate with basic functions in prelude
   - `add`, `sub`, `mul`, `div`, `pow`, `mod` (match the operators below)
   - `avg`, `sum`, `med`

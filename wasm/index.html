@@ -179,6 +179,8 @@
     });
 
     let selectedCell;
+    let copiedCellId;
+    let cutCellContent;
 
     function selectCell(cell) {
         if (!cell) {
@@ -224,7 +226,28 @@
                     break;
                 case 's':
                     event.preventDefault();
-                    await window.wasmBindings.save_app_state_to_local_storage()
+                    window.wasmBindings.save_app_state_to_local_storage()
+                    break;
+                case 'c':
+                    event.preventDefault();
+                    copiedCellId = selectedCell.id
+                    break;
+                case 'x':
+                    event.preventDefault();
+                    cutCellContent = selectedCell.textContent
+                    selectedCell.textContent = window.wasmBindings.set_cell_raw_value(selectedCell.id, '');
+                    break;
+                case 'v':
+                    event.preventDefault();
+                    if (cutCellContent) {
+                        console.log("paste cut cell:", selectedCell.id, cutCellContent);
+                        selectedCell.textContent = window.wasmBindings.set_cell_raw_value(selectedCell.id, cutCellContent);
+                        cutCellContent = null;
+                    } else if (copiedCellId) {
+                        console.log("paste copied cell:", selectedCell.id, copiedCellId);
+                        const newRawValue = window.wasmBindings.copy_cell_get_raw_value(copiedCellId, selectedCell.id);
+                        selectedCell.textContent = window.wasmBindings.set_cell_raw_value(selectedCell.id, newRawValue);
+                    }
                     break;
             }
             return;

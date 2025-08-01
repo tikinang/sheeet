@@ -4,6 +4,7 @@ use crate::reference::{CellPointer, Reference};
 use js_sys::Array;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt::format;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::window;
@@ -145,6 +146,21 @@ impl State {
         };
         self.cells.insert(key, cell);
         Ok(())
+    }
+
+    pub fn copy_cell_expression(
+        self: &Self,
+        from: CellPointer,
+        to: CellPointer,
+    ) -> Result<String, JsValue> {
+        debug_log!("copy_cell: {from} -> {to}");
+        match self.cells.get(&from) {
+            None => Err(format!("couldn't copy {from}, cell not found").into()),
+            Some(cell) => Ok(cell
+                .parsed_expression
+                .deep_copy(from.distance(&to))
+                .to_string(None)),
+        }
     }
 
     pub fn upsert_cell(self: &mut Self, key: CellPointer, raw: &str) -> Result<JsValue, JsValue> {

@@ -1,5 +1,13 @@
 use crate::reference::Reference;
 
+#[macro_export]
+macro_rules! test_log {
+    ($($arg:tt)*) => {
+        #[cfg(test)]
+        println!($($arg)*);
+    };
+}
+
 /// =add(A, sub(4, 2))
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
@@ -21,18 +29,17 @@ const CLOSING_BRACKET: char = ')';
 
 impl Expression {
     pub fn parse(mut input: &str) -> Result<Expression, &'static str> {
-        // TODO: Change to test_log.
-        println!("--parse expression: '{input}'");
+        test_log!("--parse expression: '{input}'");
         input = input.strip_prefix(EQUAL_SIGN).unwrap_or_else(|| input);
 
         let mut taken = String::new();
         let mut function_expr = Expression::None;
         let mut opening_bracket_count: usize = 0;
         for c in input.chars() {
-            println!("char: '{c}', bracket_count: {opening_bracket_count}, taken: {taken}");
+            test_log!("char: '{c}', bracket_count: {opening_bracket_count}, taken: {taken}");
 
             if c.is_whitespace() {
-                println!("ignoring whitespace");
+                test_log!("ignoring whitespace");
                 continue;
             }
 
@@ -58,7 +65,7 @@ impl Expression {
             }
 
             if c == OPENING_BRACKET {
-                println!("opening bracket");
+                test_log!("opening bracket");
                 opening_bracket_count += 1;
                 if opening_bracket_count > 1 {
                     taken.push(c);
@@ -74,7 +81,7 @@ impl Expression {
             }
 
             if c == CLOSING_BRACKET {
-                println!("closing bracket");
+                test_log!("closing bracket");
                 opening_bracket_count -= 1;
                 if opening_bracket_count > 0 {
                     taken.push(c);
@@ -87,7 +94,7 @@ impl Expression {
                 return Ok(function_expr);
             }
 
-            println!("pushing char: {c}");
+            test_log!("pushing char: {c}");
             taken.push(c);
         }
 
@@ -95,10 +102,87 @@ impl Expression {
             return Err("unclosed function");
         }
 
-        println!("return value: {taken}");
+        test_log!("return value: {taken}");
         match Reference::parse(&taken) {
             Ok(reference) => Ok(Expression::Reference(reference)),
             Err(_) => Ok(Expression::Value(taken)),
+        }
+    }
+
+    pub fn deep_copy(&self, distance: (isize, isize)) -> Self {
+        match self {
+            Expression::None => Expression::None,
+            Expression::Function { inputs, name } => {
+                let mut new_inputs = Vec::with_capacity(inputs.len());
+                for input in inputs.clone() {
+                    new_inputs.push(input.deep_copy(distance))
+                }
+                Expression::Function {
+                    inputs: new_inputs,
+                    name: name.clone(),
+                }
+            }
+            Expression::Reference(reference) => match reference {
+                Reference::Single(cell_pointer) => {
+                    Expression::Reference(Reference::Single(cell_pointer.add(distance)))
+                }
+                Reference::BoundedRange(_, _) => {
+                    todo!("range reference")
+                }
+                Reference::UnboundedColRange(_, _) => {
+                    todo!("range reference")
+                }
+                Reference::UnboundedRowRange(_, _) => {
+                    todo!("range reference")
+                }
+            },
+            Expression::Value(value) => {
+                if let Ok(mut parsed_val) = value.parse::<isize>() {
+                    parsed_val = parsed_val + distance.1;
+                    Expression::Value(parsed_val.to_string())
+                } else {
+                    Expression::Value(value.clone())
+                }
+            }
+        }
+    }
+
+    pub fn to_string(&self, str: Option<String>) -> String {
+        let mut str = str.unwrap_or_else(|| String::new());
+        match self {
+            Expression::None => str,
+            Expression::Function { name, inputs } => {
+                str.push(EQUAL_SIGN);
+                str.push_str(name);
+                str.push(OPENING_BRACKET);
+                for (i, input) in inputs.iter().enumerate() {
+                    str = input.to_string(Some(str));
+                    if i < inputs.len() - 1 {
+                        str.push(COMMA);
+                    }
+                }
+                str.push(CLOSING_BRACKET);
+                str
+            }
+            Expression::Reference(reference) => match reference {
+                Reference::Single(cell_pointer) => {
+                    str.push_str(&cell_pointer.to_reference());
+                    str
+                }
+                Reference::BoundedRange(_, _) => {
+                    todo!("range reference")
+                }
+                Reference::UnboundedColRange(_, _) => {
+                    todo!("range reference")
+                }
+                Reference::UnboundedRowRange(_, _) => {
+                    todo!("range reference")
+                }
+            },
+            Expression::Value(value) => {
+                str.push_str(&value);
+                str
+            }
         }
     }
 }
