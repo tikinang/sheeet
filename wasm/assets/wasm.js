@@ -37,7 +37,7 @@ function setResult(message, loading = false) {
     el.className = loading ? "loading" : "";
 }
 
-async function compile() {
+window.compile = async function () {
     setResult("Compiling", true);
 
     let url = `${window.apiBaseUrl}/compile`
@@ -157,4 +157,4 @@ pub fn sub(a: f64, b: f64) -> f64 {
 `
 )
 
-await compile();
+await window.compile();

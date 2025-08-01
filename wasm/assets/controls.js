@@ -1,34 +1,124 @@
-document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
-    event.preventDefault();
-    console.debug("in focusout");
-    event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim());
-});
+let rangeStartCell = null;
+let rangeEndCell = null;
+let selectedRange = new Set();
+let isMouseDown = false;
 
-let selectedCell;
-let copiedCellId;
-let cutCellContent;
+function getCellCoordinates(cell) {
+    const parts = cell.id.split("-");
+    return {
+        col: parseInt(parts[0]),
+        row: parseInt(parts[1])
+    };
+}
 
-function selectCell(cell) {
-    if (!cell) {
-        return;
-    }
-    if (selectedCell) {
-        selectedCell.classList.remove("selected");
-        if (selectedCell.hasAttribute("contenteditable")) {
-            selectedCell.removeAttribute("contenteditable");
+function clearRangeSelection() {
+    selectedRange.forEach(cellId => {
+        const cell = document.getElementById(cellId);
+        if (cell) {
+            cell.classList.remove('selected-anchor', 'selected-top', 'selected-bottom', 'selected-left', 'selected-right');
+        }
+    });
+    selectedRange.clear();
+
+    rangeStartCell = null;
+    rangeEndCell = null;
+}
+
+function forEachCell(startCell, endCell, handle) {
+    const start = getCellCoordinates(startCell);
+    const end = getCellCoordinates(endCell);
+
+    const minCol = Math.min(start.col, end.col);
+    const maxCol = Math.max(start.col, end.col);
+    const minRow = Math.min(start.row, end.row);
+    const maxRow = Math.max(start.row, end.row);
+
+    for (let col = minCol; col <= maxCol; col++) {
+        for (let row = minRow; row <= maxRow; row++) {
+            handle(col, row, {minCol, maxCol, minRow, maxRow})
         }
     }
-    selectedCell = cell
-    selectedCell.classList.add("selected");
-    selectedCell.scrollIntoView({
+}
+
+function selectRange(startCell, endCell) {
+    clearRangeSelection();
+    
+    forEachCell(startCell, endCell, (col, row, boundaries) => {
+        const cellId = `${col}-${row}`;
+        const cell = document.getElementById(cellId);
+        if (cell) {
+            selectedRange.add(cellId);
+            if (col === boundaries.minCol) {
+                cell.classList.add('selected-left');
+            }
+            if (col === boundaries.maxCol) {
+                cell.classList.add('selected-right');
+            }
+            if (row === boundaries.minRow) {
+                cell.classList.add('selected-top');
+            }
+            if (row === boundaries.maxRow) {
+                cell.classList.add('selected-bottom');
+            }
+        }
+    })
+
+    rangeStartCell = startCell
+    rangeStartCell.classList.add('selected-anchor');
+
+    rangeEndCell = endCell
+    rangeEndCell.scrollIntoView({
         behavior: 'smooth',
         block: 'nearest',
         inline: 'nearest'
     });
 }
 
-document.getElementById("spreadsheet").addEventListener('click', async function (event) {
-    selectCell(event.target)
+function selectCell(cell, extendRange = false) {
+    if (!cell) {
+        return;
+    }
+
+    if (extendRange && rangeStartCell) {
+        rangeEndCell = cell;
+        selectRange(rangeStartCell, cell);
+    } else {
+        selectRange(cell, cell)
+    }
+}
+
+
+document.getElementById("cargo-toml-content").addEventListener('focus', function () {
+    clearRangeSelection();
+});
+document.getElementById("lib-rs-content").addEventListener('focus', function () {
+    clearRangeSelection();
+});
+
+document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
+    event.preventDefault();
+    event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim());
+});
+
+
+document.getElementById("spreadsheet").addEventListener('mousedown', function (event) {
+    if (event.target.tagName === 'TD') {
+        isMouseDown = true;
+        selectCell(event.target, event.shiftKey);
+        document.activeElement.blur()
+        event.preventDefault();
+    }
+});
+
+document.getElementById("spreadsheet").addEventListener('mousemove', function (event) {
+    if (isMouseDown && event.target.tagName === 'TD') {
+        selectCell(event.target, true);
+        event.preventDefault();
+    }
+});
+
+document.addEventListener('mouseup', function () {
+    isMouseDown = false;
 });
 
 function addId(selectedId, vertical, val) {
@@ -41,6 +131,10 @@ function addId(selectedId, vertical, val) {
     return `${parts[0]}-${parts[1]}`
 }
 
+let copiedRangeStartCell = null;
+let copiedRangeEndCell = null;
+let cut = false;
+
 window.addEventListener('keydown', async function (event) {
     if (event.ctrlKey) {
         switch (event.key) {
@@ -48,7 +142,7 @@ window.addEventListener('keydown', async function (event) {
                 event.preventDefault();
                 saveCode(document.getElementById("cargo-toml-content"))
                 saveCode(document.getElementById("lib-rs-content"))
-                await compile();
+                await window.compile();
                 break;
             case 's':
                 event.preventDefault();
@@ -56,24 +150,36 @@ window.addEventListener('keydown', async function (event) {
                 break;
             case 'c':
                 event.preventDefault();
-                copiedCellId = selectedCell.id
+                copiedRangeStartCell = rangeStartCell
+                copiedRangeEndCell = rangeEndCell
                 break;
             case 'x':
                 event.preventDefault();
-                cutCellContent = selectedCell.textContent
-                selectedCell.textContent = window.wasmBindings.set_cell_raw_value(selectedCell.id, '');
+                copiedRangeStartCell = rangeStartCell
+                copiedRangeEndCell = rangeEndCell
+                cut = true;
                 break;
             case 'v':
                 event.preventDefault();
-                if (cutCellContent) {
-                    console.log("paste cut cell:", selectedCell.id, cutCellContent);
-                    selectedCell.textContent = window.wasmBindings.set_cell_raw_value(selectedCell.id, cutCellContent);
-                    cutCellContent = null;
-                } else if (copiedCellId) {
-                    console.log("paste copied cell:", selectedCell.id, copiedCellId);
-                    const newRawValue = window.wasmBindings.copy_cell_get_raw_value(copiedCellId, selectedCell.id);
-                    selectedCell.textContent = window.wasmBindings.set_cell_raw_value(selectedCell.id, newRawValue);
+                if (!copiedRangeStartCell || !copiedRangeEndCell) {
+                    break;
                 }
+                const targetStartCell = getCellCoordinates(rangeStartCell);
+                forEachCell(copiedRangeStartCell, copiedRangeEndCell, (col, row, boundaries) => {
+                    const colDistance = targetStartCell.col - boundaries.minCol
+                    const rowDistance = targetStartCell.row - boundaries.minRow
+                    
+                    const copiedCellId = `${col}-${row}`;
+                    const targetCellId = `${col + colDistance}-${row + rowDistance}`
+                    const newRawValue = window.wasmBindings.copy_cell_get_raw_value(copiedCellId, targetCellId);
+                    document.getElementById(targetCellId).textContent = window.wasmBindings.set_cell_raw_value(targetCellId, newRawValue);
+
+                    if (cut) {
+                        const cutCell = document.getElementById(copiedCellId);
+                        cutCell.textContent = window.wasmBindings.set_cell_raw_value(cutCell.id, '');
+                        cut = false;
+                    }
+                })
                 break;
         }
         return;
@@ -81,63 +187,72 @@ window.addEventListener('keydown', async function (event) {
 
     switch (event.key) {
         case 'Enter':
-            if (!selectedCell) {
+            if (!rangeStartCell) {
                 break;
             }
             event.preventDefault();
-            console.debug("in enter")
-            if (selectedCell.hasAttribute("contenteditable")) {
-                selectedCell.removeAttribute("contenteditable");
+            if (rangeStartCell.hasAttribute("contenteditable")) {
+                rangeStartCell.removeAttribute("contenteditable");
             } else {
-                if (selectedCell.textContent.trim()) {
-                    selectedCell.textContent = window.wasmBindings.get_cell_raw_value(selectedCell.id)
+                if (rangeStartCell.textContent.trim()) {
+                    rangeStartCell.textContent = window.wasmBindings.get_cell_raw_value(rangeStartCell.id)
                 }
-                selectedCell.setAttribute("contenteditable", "true");
-                selectedCell.focus();
+                rangeStartCell.setAttribute("contenteditable", "true");
+                rangeStartCell.focus();
             }
             break;
         case 'Escape':
-            if (!selectedCell) {
+            if (!rangeStartCell) {
                 break;
             }
             event.preventDefault();
-            if (selectedCell.hasAttribute("contenteditable")) {
-                selectedCell.removeAttribute("contenteditable");
+            if (rangeStartCell.hasAttribute("contenteditable")) {
+                rangeStartCell.removeAttribute("contenteditable");
             } else {
-                selectedCell.classList.remove("selected");
-                selectedCell = null
+                clearRangeSelection();
             }
+            break;
+        case 'Delete':
+            if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
+                break;
+            }
+            event.preventDefault();
+            forEachCell(rangeStartCell, rangeEndCell, (col, row, _) => {
+                const targetCellId = `${col}-${row}`;
+                const toDeleteCell = document.getElementById(targetCellId);
+                toDeleteCell.textContent = window.wasmBindings.set_cell_raw_value(toDeleteCell.id, '');                
+            })
             break;
         case 'ArrowUp':
-            if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
+            if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                 break;
             }
             event.preventDefault();
-            selectCell(document.getElementById(addId(selectedCell.id, true, -1)))
+            selectCell(document.getElementById(addId(rangeEndCell.id, true, -1)), event.shiftKey)
             break;
         case 'ArrowDown':
-            if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
+            if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                 break;
             }
             event.preventDefault();
-            selectCell(document.getElementById(addId(selectedCell.id, true, 1)))
+            selectCell(document.getElementById(addId(rangeEndCell.id, true, 1)), event.shiftKey)
             break;
         case 'ArrowLeft':
-            if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
+            if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                 break;
             }
             event.preventDefault();
-            selectCell(document.getElementById(addId(selectedCell.id, false, -1)))
+            selectCell(document.getElementById(addId(rangeEndCell.id, false, -1)), event.shiftKey)
             break;
         case 'ArrowRight':
-            if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
+            if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                 break;
             }
             event.preventDefault();
-            selectCell(document.getElementById(addId(selectedCell.id, false, 1)))
+            selectCell(document.getElementById(addId(rangeEndCell.id, false, 1)), event.shiftKey)
             break;
         case 'Tab':
-            if (!selectedCell || selectedCell.hasAttribute("contenteditable")) {
+            if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                 break;
             }
             event.preventDefault();
@@ -145,7 +260,7 @@ window.addEventListener('keydown', async function (event) {
             if (event.shiftKey) {
                 val = -1
             }
-            selectCell(document.getElementById(addId(selectedCell.id, false, val)))
+            selectCell(document.getElementById(addId(rangeEndCell.id, false, val)), event.shiftKey)
             break;
     }
 });

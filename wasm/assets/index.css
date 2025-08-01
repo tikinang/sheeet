@@ -80,8 +80,8 @@ table {
 
 th, td {
     min-width: 6rem;
-    border-bottom: 1px solid whitesmoke;
-    border-right: 1px solid whitesmoke;
+    border-bottom: 1px solid lightgray;
+    border-right: 1px solid lightgray;
 }
 
 th:last-child, td:last-child {
@@ -92,10 +92,32 @@ tr:last-child td {
     border-bottom: none;
 }
 
-td:focus {
-    outline: 3px solid white;
+/*td {*/
+/*    margin: 0;*/
+/*    padding: 5px;*/
+/*    box-sizing: border-box;*/
+/*}*/
+
+td.selected-top {
+    border-top: 3px solid white;
 }
 
-td.selected {
-    outline: 3px solid white;
+td.selected-bottom {
+    border-bottom: 3px solid white;
+}
+
+td.selected-left {
+    border-left: 3px solid white;
+}
+
+td.selected-right {
+    border-right: 3px solid white;
+}
+
+td.selected-anchor {
+    border: 3px solid red;
+}
+
+td:focus {
+    outline: 3px solid red;
 }
