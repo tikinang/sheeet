@@ -11,7 +11,6 @@ macro_rules! test_log {
 /// =add(A, sub(4, 2))
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
-    None,
     Function {
         name: String,
         inputs: Vec<Expression>,
@@ -25,23 +24,16 @@ const COMMA: char = ',';
 const OPENING_BRACKET: char = '(';
 const CLOSING_BRACKET: char = ')';
 
-// TODO: Support strings.
-
 impl Expression {
     pub fn parse(mut input: &str) -> Result<Expression, &'static str> {
         test_log!("--parse expression: '{input}'");
         input = input.strip_prefix(EQUAL_SIGN).unwrap_or_else(|| input);
 
         let mut taken = String::new();
-        let mut function_expr = Expression::None;
+        let mut function_expr: Option<Expression> = None;
         let mut opening_bracket_count: usize = 0;
         for c in input.chars() {
             test_log!("char: '{c}', bracket_count: {opening_bracket_count}, taken: {taken}");
-
-            if c.is_whitespace() {
-                test_log!("ignoring whitespace");
-                continue;
-            }
 
             if c == COMMA {
                 if opening_bracket_count == 0 {
@@ -57,7 +49,7 @@ impl Expression {
                     return Err("unexpected comma, no arguments between");
                 }
                 let expr = Self::parse(&taken)?;
-                if let Expression::Function { name: _, inputs } = &mut function_expr {
+                if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
                     inputs.push(expr);
                 }
                 taken = String::new();
@@ -71,11 +63,10 @@ impl Expression {
                     taken.push(c);
                     continue;
                 }
-                // state = ParsingState::InsideFunction;
-                function_expr = Expression::Function {
-                    name: taken.clone(),
+                function_expr = Some(Expression::Function {
+                    name: taken.trim().to_string(),
                     inputs: Vec::new(),
-                };
+                });
                 taken = String::new();
                 continue;
             }
@@ -87,11 +78,11 @@ impl Expression {
                     taken.push(c);
                     continue;
                 }
-                let expr = Self::parse(&taken)?;
-                if let Expression::Function { name: _, inputs } = &mut function_expr {
+                let expr = Self::parse(&taken.trim())?;
+                if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
                     inputs.push(expr);
                 }
-                return Ok(function_expr);
+                return function_expr.ok_or("expected function expression to be present");
             }
 
             test_log!("pushing char: {c}");
@@ -103,15 +94,14 @@ impl Expression {
         }
 
         test_log!("return value: {taken}");
-        match Reference::parse(&taken) {
+        match Reference::parse(&taken.trim()) {
             Ok(reference) => Ok(Expression::Reference(reference)),
-            Err(_) => Ok(Expression::Value(taken)),
+            Err(_) => Ok(Expression::Value(taken.trim().to_string())),
         }
     }
 
     pub fn deep_copy(&self, distance: (isize, isize)) -> Self {
         match self {
-            Expression::None => Expression::None,
             Expression::Function { inputs, name } => {
                 let mut new_inputs = Vec::with_capacity(inputs.len());
                 for input in inputs.clone() {
@@ -150,7 +140,6 @@ impl Expression {
     pub fn to_string(&self, str: Option<String>) -> String {
         let mut str = str.unwrap_or_else(|| String::new());
         match self {
-            Expression::None => str,
             Expression::Function { name, inputs } => {
                 str.push(EQUAL_SIGN);
                 str.push_str(name);
@@ -239,6 +228,18 @@ mod test {
                     ],
                 }
             );
+        }
+        {
+            let input = "2";
+            let expr = Expression::parse(input).expect("parsing failed");
+            println!("{expr:#?}");
+            assert_eq!(expr, Value(String::from("2")));
+        }
+        {
+            let input = "some text";
+            let expr = Expression::parse(input).expect("parsing failed");
+            println!("{expr:#?}");
+            assert_eq!(expr, Value(String::from("some text")));
         }
     }
 

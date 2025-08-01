@@ -26,10 +26,9 @@ pub fn run_evaluate(input: &str) -> JsValue {
 }
 
 #[wasm_bindgen]
-pub fn get_cell_raw_value(id: &str) -> Result<String, JsValue> {
-    STATE
-        .with_borrow(|state| state.get_cell_raw_value(CellPointer::from_str(id)))
-        .ok_or_else(|| JsValue::from_str(&format!("cell raw value not found for: {id}")))
+pub fn get_cell_raw_value(id: &str) -> String {
+    let key = CellPointer::from_str(id);
+    STATE.with_borrow(|state| state.get_cell_raw_value(key).unwrap_or_default())
 }
 
 #[wasm_bindgen]
@@ -45,7 +44,12 @@ pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<String, JsValue> {
             // Upsert.
             _ => {
                 let resolved_value = state.upsert_cell(cell_pointer, raw)?;
-                Ok(js_value_to_string(resolved_value))
+                if resolved_value.is_null() {
+                    // Show the raw value if we can't find reference.
+                    Ok(state.get_cell_raw_value(cell_pointer).unwrap_or_default())
+                } else {
+                    Ok(js_value_to_string(resolved_value))
+                }
             }
         }
     })

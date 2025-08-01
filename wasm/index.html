@@ -60,8 +60,9 @@
     }
 
     async function loadWasmBindgenModule(jsUrl, wasmUrl) {
-        const module = await import(jsUrl);
+        const module = await import(jsUrl+`?version=${Number(new Date())}`);
         await module.default({module_or_path: wasmUrl});
+        console.log(module)
         window.userWasmModule = module;
         return module;
     }
@@ -355,17 +356,26 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     window.wasmBindings.save_app_state_to_local_storage()
                     break;
                 case 'c':
+                    if (!rangeStartCell) {
+                        break;
+                    }
                     event.preventDefault();
                     copiedRangeStartCell = rangeStartCell
                     copiedRangeEndCell = rangeEndCell
                     break;
                 case 'x':
+                    if (!rangeStartCell) {
+                        break;
+                    }
                     event.preventDefault();
                     copiedRangeStartCell = rangeStartCell
                     copiedRangeEndCell = rangeEndCell
                     cut = true;
                     break;
                 case 'v':
+                    if (!rangeStartCell) {
+                        break;
+                    }
                     event.preventDefault();
                     if (!copiedRangeStartCell || !copiedRangeEndCell) {
                         break;
@@ -400,9 +410,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
                 if (rangeStartCell.hasAttribute("contenteditable")) {
                     rangeStartCell.removeAttribute("contenteditable");
                 } else {
-                    if (rangeStartCell.textContent.trim()) {
-                        rangeStartCell.textContent = window.wasmBindings.get_cell_raw_value(rangeStartCell.id)
-                    }
+                    rangeStartCell.textContent = window.wasmBindings.get_cell_raw_value(rangeStartCell.id)
                     rangeStartCell.setAttribute("contenteditable", "true");
                     rangeStartCell.focus();
                 }
@@ -458,6 +466,17 @@ pub fn sub(a: f64, b: f64) -> f64 {
                 selectCell(document.getElementById(addId(rangeEndCell.id, false, 1)), event.shiftKey)
                 break;
             case 'Tab':
+                if (document.activeElement === document.getElementById("lib-rs-content")) {
+                    event.preventDefault();
+                    let range = window.getSelection().getRangeAt(0);
+
+                    let tabNode = document.createTextNode("    ");
+                    range.insertNode(tabNode);
+
+                    range.setStartAfter(tabNode);
+                    range.setEndAfter(tabNode);
+                    break;
+                }
                 if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                     break;
                 }

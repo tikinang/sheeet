@@ -3,6 +3,7 @@ use crate::expression::Expression;
 use crate::reference::{CellPointer, Reference};
 use js_sys::Array;
 use serde::{Deserialize, Serialize};
+use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -287,9 +288,6 @@ impl State {
         expression: &Expression,
     ) -> Result<JsValue, JsValue> {
         match expression {
-            Expression::None => {
-                todo!("remove None expression, use option")
-            }
             Expression::Function { name, inputs } => {
                 let js_inputs = Array::new();
                 for input in inputs {
@@ -302,37 +300,59 @@ impl State {
             Expression::Reference(reference) => match reference {
                 Reference::Single(key) => {
                     dependencies.insert(key.clone());
-                    let target_cell = self.cells.get(key);
-                    match target_cell {
-                        Some(target_cell) => {
-                            let resolved_value = target_cell.resolved_value.clone();
-                            let parsed_expression = target_cell.parsed_expression.clone();
-                            match resolved_value {
-                                Some(value) => Ok(value),
-                                None => {
-                                    // Here we are not resolved yet. Lazily init.
-                                    let mut target_dependencies = HashSet::new();
-                                    let target_resolved_value = self
-                                        .resolve_expression_value_and_dependencies(
-                                            &mut target_dependencies,
-                                            &parsed_expression,
-                                        )?;
-                                    self.cells.entry(key.clone()).and_modify(|entry| {
-                                        entry.resolved_value = Some(target_resolved_value.clone());
-                                        entry.resolved_dependencies = Some(target_dependencies);
-                                    });
-                                    Ok(target_resolved_value)
-                                }
-                            }
-                        }
-                        None => Err(JsValue::from_str(&format!("reference '{key}' not found"))),
-                    }
+                    self.resolve_single_reference_value_and_dependencies(&key)
                 }
-                Reference::BoundedRange(_, _) => todo!("bounded range"),
+                Reference::BoundedRange(range_start, range_end) => {
+                    let min_col = min(range_start.0, range_end.0);
+                    let max_col = max(range_start.0, range_end.0);
+                    let min_row = min(range_start.1, range_end.1);
+                    let max_row = max(range_start.1, range_end.1);
+                    let ref_values = Array::new();
+                    for col in min_col..=max_col {
+                        for row in min_row..=max_row {
+                            let key = CellPointer(col, row);
+                            ref_values
+                                .push(&self.resolve_single_reference_value_and_dependencies(&key)?);
+                        }
+                    }
+                    Ok(JsValue::from(ref_values))
+                }
                 Reference::UnboundedColRange(_, _) => todo!("unbounded col range"),
                 Reference::UnboundedRowRange(_, _) => todo!("unbounded row range"),
             },
             Expression::Value(val) => Ok(JsValue::from_str(&val)),
+        }
+    }
+
+    fn resolve_single_reference_value_and_dependencies(
+        &mut self,
+        key: &CellPointer,
+    ) -> Result<JsValue, JsValue> {
+        let target_cell = self.cells.get(key);
+        match target_cell {
+            Some(target_cell) => {
+                let resolved_value = target_cell.resolved_value.clone();
+                let parsed_expression = target_cell.parsed_expression.clone();
+                match resolved_value {
+                    Some(value) => Ok(value),
+                    None => {
+                        // Here we are not resolved yet. Lazily init.
+                        let mut target_dependencies = HashSet::new();
+                        let target_resolved_value = self
+                            .resolve_expression_value_and_dependencies(
+                                &mut target_dependencies,
+                                &parsed_expression,
+                            )?;
+                        self.cells.entry(key.clone()).and_modify(|entry| {
+                            entry.resolved_value = Some(target_resolved_value.clone());
+                            entry.resolved_dependencies = Some(target_dependencies);
+                        });
+                        Ok(target_resolved_value)
+                    }
+                }
+            }
+            // None => Err(JsValue::from_str(&format!("reference '{key}' not found"))),
+            None => Ok(JsValue::null()), // TODO: Goal is to coerce invalid ref to empty values.
         }
     }
 }
@@ -354,6 +374,8 @@ pub fn js_value_to_string(value: JsValue) -> String {
         value.to_string()
     } else if let Some(value) = value.as_f64() {
         value.to_string()
+    } else if value.is_null() {
+        String::new()
     } else {
         format!("unknown JS value type: {:?}", value)
     }

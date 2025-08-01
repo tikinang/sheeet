@@ -98,6 +98,13 @@ tr:last-child td {
 /*    box-sizing: border-box;*/
 /*}*/
 
+td { 
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 12rem;
+}
+
 td.selected-top {
     border-top: 3px solid white;
 }
@@ -120,4 +127,11 @@ td.selected-anchor {
 
 td:focus {
     outline: 3px solid red;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+td:hover {
+    overflow: visible;
+    text-overflow: clip;
 }

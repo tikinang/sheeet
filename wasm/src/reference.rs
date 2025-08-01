@@ -157,27 +157,30 @@ impl Reference {
             }
         }
 
-        let first_part = first_part.unwrap_or_else(|| {
-            let r = CellPointer(
-                column_name_to_usize(&taken_alphabetic),
-                taken_numeric.parse().expect("not numeric"),
-            );
-            taken_alphabetic = String::new();
-            taken_numeric = String::new();
-            r
-        });
+        let first_part = match first_part {
+            Some(x) => x,
+            None => {
+                let r = CellPointer(
+                    try_column_name_to_usize(&taken_alphabetic)?,
+                    taken_numeric.parse().expect("not numeric"),
+                );
+                taken_alphabetic = String::new();
+                taken_numeric = String::new();
+                r
+            }
+        };
 
         match (taken_alphabetic.len(), taken_numeric.len()) {
             (col, row) if col > 0 && row > 0 => {
                 let second_part = CellPointer(
-                    column_name_to_usize(&taken_alphabetic),
+                    try_column_name_to_usize(&taken_alphabetic)?,
                     taken_numeric.parse().expect("not numeric"),
                 );
                 Ok(Reference::BoundedRange(first_part, second_part))
             }
             (col, _) if col > 0 => Ok(Reference::UnboundedColRange(
                 first_part,
-                column_name_to_usize(&taken_alphabetic),
+                try_column_name_to_usize(&taken_alphabetic)?,
             )),
             (_, row) if row > 0 => Ok(Reference::UnboundedRowRange(
                 first_part,
@@ -197,18 +200,22 @@ const ALPHABET: [char; 26] = [
 // TODO: Change to Result instead of panic.
 
 fn column_name_to_usize(name: &str) -> usize {
+    try_column_name_to_usize(name).expect("failed to cast column name to usize")
+}
+
+fn try_column_name_to_usize(name: &str) -> Result<usize, String> {
     let mut index = 0;
     for (multiplier, mut c) in name.chars().enumerate() {
         if !c.is_ascii_alphabetic() {
-            panic!("column name has non-ascii-alphabetic char '{c}'")
+            return Err(format!("column name has non-ascii-alphabetic char '{c}'"));
         }
 
         c = c.to_ascii_lowercase();
         if multiplier != name.len() - 1 && c != ALPHABET[0] {
-            panic!(
+            return Err(format!(
                 "unexpected ascii-char '{}' at position {} of '{}', only '{}' supported",
                 c, multiplier, name, ALPHABET[0]
-            )
+            ));
         }
 
         // TODO: Different way to find the index?
@@ -217,7 +224,7 @@ fn column_name_to_usize(name: &str) -> usize {
             .expect(&format!("column name char '{c}' not found in the alphabet"));
         index = i + (multiplier * ALPHABET.len())
     }
-    index + 1
+    Ok(index + 1)
 }
 
 pub fn usize_to_column_name(mut index: usize) -> String {
@@ -342,5 +349,7 @@ mod tests {
         Reference::parse("A1:1A").expect_err("expected err");
         Reference::parse("A1::").expect_err("expected err");
         Reference::parse("-").expect_err("expected err");
+        Reference::parse("text").expect_err("expected err");
+        Reference::parse("some text").expect_err("expected err");
     }
 }

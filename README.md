@@ -16,7 +16,7 @@ Live at: https://sheeet.matejpavlicek.cz
 ## TODO
 
 ### Necessary
-- [x] implement spreadsheet functionality
+- implement spreadsheet functionality
   - [x] copy, cut, paste cell
   - [x] select and manipulate multiple cells
   - [x] deselect cell out when clicking in the editor
@@ -33,6 +33,9 @@ Live at: https://sheeet.matejpavlicek.cz
   - set secret API key
   - workspace status bar (ID, API key set, status - compiling, computing, idling)
 - [ ] prepare Zerops Recipe for simple deployment
+- fixes
+  - [ ] self reference
+  - [x] tab in code editor
 
 ### Nice to Have 
 - [ ] use `async` instead of spawning threads in `PUT /compile`
