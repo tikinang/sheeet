@@ -90,17 +90,19 @@ impl<'de> Deserialize<'de> for CellPointer {
 
 #[derive(Default)]
 pub struct State {
+    pub initialized: bool,
     pub sheet_bounds: (usize, usize),
     cells: HashMap<CellPointer, Cell>,
-    reverse_dependents_index: HashMap<CellPointer, HashSet<CellPointer>>,
+    reverse_index: HashMap<CellPointer, HashSet<CellPointer>>,
 }
 
 impl State {
     pub fn new() -> Self {
         State {
+            initialized: true,
             sheet_bounds: (27, 65),
             cells: HashMap::new(),
-            reverse_dependents_index: HashMap::new(),
+            reverse_index: HashMap::new(),
         }
     }
 
@@ -116,6 +118,18 @@ impl State {
         }
         serializable_state
     }
+
+    pub fn recalculate(&mut self) -> Result<(), JsValue> {
+        for k in self
+            .cells
+            .keys()
+            .map(|k| k.clone())
+            .collect::<Vec<CellPointer>>()
+        {
+            self.resolve_cell_value_and_dependencies(k, ResolveDisplay::Update)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -127,18 +141,35 @@ pub struct SerializableState {
 impl SerializableState {
     pub fn to_memory_state(self) -> Result<State, JsValue> {
         let mut new_state = State {
+            initialized: true,
             sheet_bounds: self.sheet_bounds,
             cells: HashMap::with_capacity(self.data.len()),
-            reverse_dependents_index: HashMap::new(),
+            reverse_index: HashMap::new(),
         };
         for (k, v) in self.data {
             new_state.insert_cell(k.clone(), &v)?;
         }
         let keys: Vec<CellPointer> = new_state.cells.keys().map(|k| k.clone()).collect();
         for k in keys {
-            new_state.resolve_cell_value_and_dependencies(k.clone(), true, false)?;
+            new_state.resolve_cell_value_and_dependencies(k, ResolveDisplay::Noop)?;
         }
         Ok(new_state)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ResolveDisplay {
+    Update,
+    UpdateNext,
+    Noop,
+}
+
+impl ResolveDisplay {
+    fn next(self) -> Self {
+        match self {
+            ResolveDisplay::Noop => ResolveDisplay::Noop,
+            _ => ResolveDisplay::Update,
+        }
     }
 }
 
@@ -171,8 +202,24 @@ impl State {
 
     pub fn upsert_cell(self: &mut Self, key: CellPointer, raw: &str) -> Result<JsValue, JsValue> {
         debug_log!("upsert_cell: {key} -> {raw}");
-        self.insert_cell(key.clone(), raw)?;
-        self.resolve_cell_value_and_dependencies(key, true, true)
+        let expr = parse_expression(raw)?;
+        self.cells
+            .entry(key)
+            .and_modify(|cell| {
+                cell.raw_value = raw.to_string();
+                cell.parsed_expression = expr.clone();
+            })
+            .or_insert({
+                let expr = parse_expression(raw)?;
+                Cell {
+                    cell_pointer: key.clone(),
+                    raw_value: raw.to_string(),
+                    parsed_expression: expr.clone(),
+                    resolved_value: None,
+                    resolved_dependencies: None,
+                }
+            });
+        self.resolve_cell_value_and_dependencies(key, ResolveDisplay::UpdateNext)
     }
 
     pub fn remove_cell(self: &mut Self, key: CellPointer) -> Result<(), JsValue> {
@@ -180,16 +227,16 @@ impl State {
         if let Some(mut cell) = self.cells.remove(&key) {
             if let Some(dependencies) = cell.resolved_dependencies.take() {
                 for dependency in dependencies {
-                    self.reverse_dependents_index
+                    self.reverse_index
                         .entry(dependency)
                         .and_modify(|dependents| _ = dependents.remove(&key));
                 }
             }
         };
-        if let Some(dependents) = self.reverse_dependents_index.remove(&key) {
+        if let Some(dependents) = self.reverse_index.remove(&key) {
             for dependent in dependents {
                 debug_log!("remove_cell: update dependent: {dependent}");
-                self.resolve_cell_value_and_dependencies(dependent, false, true)?;
+                self.resolve_cell_value_and_dependencies(dependent, ResolveDisplay::Update)?;
             }
         };
         Ok(())
@@ -198,53 +245,50 @@ impl State {
     fn resolve_cell_value_and_dependencies(
         self: &mut Self,
         key: CellPointer,
-        // TODO: Make typed.
-        first_level: bool,
-        update_display_value: bool,
+        display: ResolveDisplay,
     ) -> Result<JsValue, JsValue> {
-        debug_log!(
-            "resolve_cell_value_and_dependencies: {key} ({first_level}, {update_display_value})"
-        );
+        debug_log!("resolve_cell_value_and_dependencies: {key} ({display:?})");
         let cell = self.cells.get_mut(&key).unwrap();
+        let old_resolved_value = cell.resolved_value.take();
         let old_dependencies = cell.resolved_dependencies.take();
         let parsed_expression = cell.parsed_expression.clone();
 
-        let mut new_dependencies = Vec::new();
-        let resolved_value = self
+        let mut new_dependencies = HashSet::new();
+        let new_resolved_value = self
             .resolve_expression_value_and_dependencies(&mut new_dependencies, &parsed_expression)
             .unwrap_or_else(|err| format!("ERROR: {err:?}").into());
 
         // Update cell's resolved values.
         debug_log!(
-            "resolve_cell_value_and_dependencies: update resolved cell value: {key} -> {resolved_value:?}"
+            "resolve_cell_value_and_dependencies: update resolved cell value: {key} -> {new_resolved_value:?}"
         );
-        if update_display_value && !first_level {
-            display_cell_value(key, resolved_value.clone())?;
+        if let ResolveDisplay::Update = display {
+            display_cell_value(key, new_resolved_value.clone())?;
         }
         self.cells.entry(key).and_modify(|entry| {
-            entry.resolved_value = Some(resolved_value.clone());
+            entry.resolved_value = Some(new_resolved_value.clone());
             entry.resolved_dependencies = Some(new_dependencies.clone());
         });
 
         // Remove old dependencies from the reverse index.
-        if let Some(old_dependencies) = old_dependencies {
-            for old_dependency in old_dependencies {
+        if let Some(old_dependencies) = &old_dependencies {
+            for old_dependency in old_dependencies.difference(&new_dependencies) {
                 debug_log!(
                     "resolve_cell_value_and_dependencies: remove from reverse index: {old_dependency} <- [{key}]"
                 );
-                self.reverse_dependents_index
-                    .entry(old_dependency)
+                self.reverse_index
+                    .entry(old_dependency.clone())
                     .and_modify(|dependents| _ = dependents.remove(&key));
             }
         }
 
         // Add new dependencies to the reverse index.
-        for new_dependency in new_dependencies {
+        for new_dependency in new_dependencies.difference(&old_dependencies.unwrap_or_default()) {
             debug_log!(
                 "resolve_cell_value_and_dependencies: add to reverse index: {new_dependency} <- [{key}]"
             );
-            self.reverse_dependents_index
-                .entry(new_dependency)
+            self.reverse_index
+                .entry(new_dependency.clone())
                 .and_modify(|dependents| _ = dependents.insert(key))
                 .or_insert_with(|| {
                     let mut dependents = HashSet::new();
@@ -253,25 +297,32 @@ impl State {
                 });
         }
 
-        // TODO: Compare the old and new resolved values,
-        //  and only if they differ update the dependents.
-        // Update recursively all dependents.
+        // Compare the old and new resolved values, and only if they differ
+        // update recursively all dependents.
+        if let Some(old_resolved_value) = old_resolved_value {
+            if old_resolved_value == new_resolved_value {
+                debug_log!("resolve_cell_value_and_dependencies: resolved value is the same");
+                return Ok(new_resolved_value);
+            }
+        }
+
         if let Some(dependents) = self
-            .reverse_dependents_index
+            .reverse_index
             .get(&key)
             .map(|dependents| dependents.clone())
         {
             for dependent in dependents {
                 debug_log!("resolve_cell_value_and_dependencies: update dependent: {dependent}");
-                self.resolve_cell_value_and_dependencies(dependent, false, update_display_value)?;
+                self.resolve_cell_value_and_dependencies(dependent, display.next())?;
             }
         }
-        Ok(resolved_value)
+
+        Ok(new_resolved_value)
     }
 
     pub fn resolve_expression_value_and_dependencies(
         self: &mut Self,
-        dependencies: &mut Vec<CellPointer>,
+        dependencies: &mut HashSet<CellPointer>,
         expression: &Expression,
     ) -> Result<JsValue, JsValue> {
         match expression {
@@ -289,7 +340,7 @@ impl State {
             }
             Expression::Reference(reference) => match reference {
                 Reference::Single(key) => {
-                    dependencies.push(key.clone());
+                    dependencies.insert(key.clone());
                     let target_cell = self.cells.get(key);
                     match target_cell {
                         Some(target_cell) => {
@@ -299,7 +350,7 @@ impl State {
                                 Some(value) => Ok(value),
                                 None => {
                                     // Here we are not resolved yet. Lazily init.
-                                    let mut target_dependencies = Vec::new();
+                                    let mut target_dependencies = HashSet::new();
                                     let target_resolved_value = self
                                         .resolve_expression_value_and_dependencies(
                                             &mut target_dependencies,
@@ -352,7 +403,7 @@ pub struct Cell {
     pub parsed_expression: Expression,
     pub raw_value: String,
     pub resolved_value: Option<JsValue>,
-    pub resolved_dependencies: Option<Vec<CellPointer>>,
+    pub resolved_dependencies: Option<HashSet<CellPointer>>,
 }
 
 #[wasm_bindgen]

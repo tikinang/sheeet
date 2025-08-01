@@ -3,6 +3,7 @@ use sheeet_wasm::{
     State,
 };
 use std::cell::RefCell;
+use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use web_sys::console::log_2;
 use web_sys::window;
@@ -11,7 +12,7 @@ use web_sys::window;
 pub fn run_evaluate(input: &str) -> JsValue {
     STATE.with_borrow_mut(|state| {
         let expression = parse_expression(input).unwrap();
-        let mut dependencies = Vec::new();
+        let mut dependencies = HashSet::new();
         match state.resolve_expression_value_and_dependencies(&mut dependencies, &expression) {
             Ok(val) => {
                 log_2(&"evaluate ok:".into(), &val);
@@ -77,6 +78,15 @@ fn main() {
 
 #[wasm_bindgen]
 pub fn init_app() -> Result<(), JsValue> {
+    if STATE.with_borrow_mut(|state| {
+        if state.initialized {
+            state.recalculate()?;
+        }
+        Ok::<bool, JsValue>(state.initialized)
+    })? {
+        return Ok(());
+    }
+
     let window = window().ok_or("could not get window")?;
     let document = window.document().ok_or("could not get document")?;
     let spreadsheet_table = document

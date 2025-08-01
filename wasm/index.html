@@ -78,16 +78,14 @@
         logsContainer.scrollTop = logsContainer.scrollHeight;
     }
 
-    function setStatusMessage(message, loading = false) {
+    function setResult(message, loading = false) {
         const el = document.getElementById('my-result');
         el.textContent = message
         el.className = loading ? "loading" : "";
     }
-
-    window.setStatusMessage = setStatusMessage;
-
+    
     async function compile() {
-        setStatusMessage("Compiling", true);
+        setResult("Compiling", true);
 
         let url = `${window.API_BASE_URL}/compile`
         let workspaceId = localStorage.getItem("workspace-id");
@@ -110,7 +108,7 @@
             if (response.status === 404) {
                 localStorage.removeItem("workspace-id");
             }
-            setStatusMessage(`HTTP error: ${response.status} (try pressing F5)`);
+            setResult(`HTTP error: ${response.status} (try pressing F5)`);
             return;
         }
 
@@ -150,7 +148,7 @@
                 } else if (parsed.log !== undefined) {
                     appendLog(logsContainer, parsed.log);
                 } else if (parsed.error !== undefined) {
-                    setStatusMessage(`Compile error: ${parsed.error}`);
+                    setResult(`Compile error: ${parsed.error}`);
                     return;
                 } else if (parsed.download_info !== undefined) {
                     await loadWasmBindgenModule(
@@ -158,7 +156,7 @@
                         `${window.API_BASE_URL}${parsed.download_info.wasm_download_url}`,
                     );
                     localStorage.setItem("workspace-id", parsed.download_info.workspace_id);
-                    setStatusMessage("Successfully compiled, enter your expression above.");
+                    setResult("Successfully compiled, enter your expression above.");
                     window.wasmBindings.init_app();
                 } else {
                     console.error("unknown SSE message:", parsed)
@@ -179,8 +177,8 @@
 
     document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
         event.preventDefault();
-        console.debug("in focusout")
-        event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim())
+        console.debug("in focusout");
+        event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim());
     });
 
     let selectedCell;
@@ -224,7 +222,7 @@
         }
         return `${parts[0]}-${parts[1]}`
     }
-
+    
     window.addEventListener('keydown', async function (event) {
         if (event.ctrlKey) {
             switch (event.key) {
@@ -363,7 +361,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
     document.getElementById('my-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const input = document.getElementById('my-expression').value;
-        window.setStatusMessage(await window.wasmBindings.run_evaluate(input));
+        window.setResult(await window.wasmBindings.run_evaluate(input));
     });
 </script>
 
