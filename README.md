@@ -16,7 +16,7 @@ Live at: https://sheeet.matejpavlicek.cz
 ## TODO
 
 ### Necessary
-- [ ] implement spreadsheet functionality
+- [x] implement spreadsheet functionality
   - [x] copy, cut, paste cell
   - [x] select and manipulate multiple cells
   - [x] deselect cell out when clicking in the editor
