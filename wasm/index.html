@@ -61,13 +61,11 @@
         return window.userWasmModule[fnName](...vars)
     }
 
-    // This function would be called on reload.
-    // Should also work with Trunk if supplied with correct urls. 
     async function loadWasmBindgenModule(jsUrl, wasmUrl) {
-        const jsContent = await fetch(jsUrl).then(r => r.text());
-        const userWasmModule = new Function(`${jsContent}return wasm_bindgen;`)();
-        await userWasmModule({module_or_path: wasmUrl})
-        window.userWasmModule = userWasmModule;
+        const module = await import(jsUrl);
+        await module.default({module_or_path: wasmUrl});
+        window.userWasmModule = module;
+        return module;
     }
 
     function appendLog(logsContainer, message) {
@@ -354,7 +352,6 @@ pub fn sub(a: f64, b: f64) -> f64 {
     const INITIALIZED_EVENT_NAME = "TrunkApplicationStarted"
     await new Promise((resolve) => {
         addEventListener(INITIALIZED_EVENT_NAME, () => {
-            console.log(window.wasmBindings);
             resolve();
         });
     });
