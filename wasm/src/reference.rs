@@ -7,8 +7,7 @@ use std::fmt::{Display, Formatter};
 pub struct CellPointer(pub usize, pub usize);
 
 impl CellPointer {
-    // TODO: Rename.
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_serializable(s: &str) -> Self {
         let x: Vec<&str> = s.splitn(2, '-').collect();
         CellPointer(
             x[0].parse()
@@ -18,20 +17,11 @@ impl CellPointer {
         )
     }
 
-    // TODO: Rename.
-    pub fn to_string(&self) -> String {
+    pub fn to_serializable(&self) -> String {
         self.0.to_string() + "-" + &self.1.to_string()
     }
 
-    // TODO: Change to fmt (Display trait).
-    pub fn to_reference(&self) -> String {
-        let mut str = String::new();
-        str.push_str(&usize_to_column_name(self.0));
-        str.push_str(&self.1.to_string());
-        str
-    }
-
-    pub fn from_column_and_row(column: usize, row: usize) -> Self {
+    pub fn from_col_and_row(column: usize, row: usize) -> Self {
         CellPointer(column, row)
     }
 
@@ -64,7 +54,7 @@ impl Serialize for CellPointer {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.serialize_str(&self.to_serializable())
     }
 }
 
@@ -81,7 +71,7 @@ impl<'de> Visitor<'de> for CellPointerVisitor {
     where
         E: Error,
     {
-        Ok(CellPointer::from_str(v))
+        Ok(CellPointer::from_serializable(v))
     }
 }
 
@@ -110,8 +100,6 @@ pub enum Reference {
 }
 
 pub const COLON: char = ':';
-
-// TODO: bool, number, text and null function variables
 
 impl Reference {
     pub fn parse(input: &str) -> Result<Self, String> {
@@ -143,7 +131,7 @@ impl Reference {
                 }
 
                 first_part = Some(CellPointer(
-                    column_name_to_usize(&taken_alphabetic),
+                    try_column_name_to_usize(&taken_alphabetic)?,
                     taken_numeric.parse().expect("not numeric"),
                 ));
                 taken_alphabetic = String::new();
@@ -203,11 +191,6 @@ const ALPHABET: [char; 26] = [
 ];
 
 // TODO: Make column alphabet functions simpler.
-// TODO: Change to Result instead of panic.
-
-fn column_name_to_usize(name: &str) -> usize {
-    try_column_name_to_usize(name).expect("failed to cast column name to usize")
-}
 
 fn try_column_name_to_usize(name: &str) -> Result<usize, String> {
     let mut index = 0;
@@ -259,6 +242,10 @@ pub fn usize_to_column_name(mut index: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn column_name_to_usize(name: &str) -> usize {
+        try_column_name_to_usize(name).expect("failed to cast column name to usize")
+    }
 
     #[test]
     fn test_add_and_distance() {

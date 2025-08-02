@@ -172,7 +172,7 @@ impl State {
             Some(cell) => Ok(cell
                 .parsed_expression
                 .copy_with_distance(from.distance(&to))
-                .to_string(None)),
+                .to_string()),
         }
     }
 
@@ -523,8 +523,11 @@ fn display_cell_value(key: CellPointer, value: JsValue) -> Result<(), JsValue> {
     let window = window().ok_or("could not get window")?;
     let document = window.document().ok_or("could not get document")?;
     let element = document
-        .get_element_by_id(&key.to_string())
-        .ok_or(&format!("could not get element by id: {}", key.to_string()))?;
+        .get_element_by_id(&key.to_serializable())
+        .ok_or(&format!(
+            "could not get element by id: {}",
+            key.to_serializable()
+        ))?;
     element.set_text_content(Some(&js_value_to_string(value)));
     Ok(())
 }

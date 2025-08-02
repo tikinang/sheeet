@@ -1,4 +1,5 @@
 use crate::reference::{COLON, Reference, usize_to_column_name};
+use std::fmt::{Display, Formatter, Write};
 
 #[macro_export]
 macro_rules! test_log {
@@ -23,17 +24,55 @@ const EQUAL_SIGN: char = '=';
 const COMMA: char = ',';
 const OPENING_BRACKET: char = '(';
 const CLOSING_BRACKET: char = ')';
+const DOUBLE_QUOTE: char = '"';
 
 impl Expression {
-    pub fn parse(mut input: &str) -> Result<Expression, &'static str> {
+    pub fn parse(input: &str) -> Result<Expression, &'static str> {
+        Self::parse_inner(input, true)
+    }
+
+    fn parse_inner(mut input: &str, root: bool) -> Result<Expression, &'static str> {
         test_log!("--parse expression: '{input}'");
-        input = input.strip_prefix(EQUAL_SIGN).unwrap_or_else(|| input);
+        input = match input.strip_prefix(EQUAL_SIGN) {
+            Some(input) => input,
+            None => {
+                if root {
+                    return Ok(Expression::Value(input.to_string()));
+                }
+                input
+            }
+        };
 
         let mut taken = String::new();
+        let mut quoted: Option<String> = None;
         let mut function_expr: Option<Expression> = None;
         let mut opening_bracket_count: usize = 0;
         for c in input.chars() {
-            test_log!("char: '{c}', bracket_count: {opening_bracket_count}, taken: {taken}");
+            test_log!(
+                r#"char: '{c}' | bracket_count: {opening_bracket_count} | taken: "{taken}" | quoted: {quoted:?}"#
+            );
+
+            if c == DOUBLE_QUOTE {
+                match quoted.take() {
+                    Some(quoted) => {
+                        test_log!(r#"ending quoted: "{quoted}""#);
+                        if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
+                            inputs.push(Expression::Value(quoted));
+                        }
+                    }
+                    None => {
+                        test_log!("new quoted");
+                        quoted = Some(String::new());
+                    }
+                };
+                continue;
+            }
+
+            if let Some(quoted) = &mut quoted {
+                test_log!("pushing char to quoted: {c}");
+                quoted.push(c);
+                continue;
+            }
 
             if c == COMMA {
                 if opening_bracket_count == 0 {
@@ -48,9 +87,11 @@ impl Expression {
                 if taken.len() == 0 {
                     return Err("unexpected comma, no arguments between");
                 }
-                let expr = Self::parse(&taken)?;
-                if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
-                    inputs.push(expr);
+                if taken.trim().len() > 0 {
+                    let expr = Self::parse_inner(&taken, false)?;
+                    if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
+                        inputs.push(expr);
+                    }
                 }
                 taken = String::new();
                 continue;
@@ -78,9 +119,11 @@ impl Expression {
                     taken.push(c);
                     continue;
                 }
-                let expr = Self::parse(&taken.trim())?;
-                if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
-                    inputs.push(expr);
+                if taken.trim().len() > 0 {
+                    let expr = Self::parse_inner(&taken.trim(), false)?;
+                    if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
+                        inputs.push(expr);
+                    }
                 }
                 return function_expr.ok_or("expected function expression to be present");
             }
@@ -93,7 +136,7 @@ impl Expression {
             return Err("unclosed function");
         }
 
-        test_log!("return value: {taken}");
+        test_log!(r#"return value: "{taken}""#);
         match Reference::parse(&taken.trim()) {
             Ok(reference) => Ok(Expression::Reference(reference)),
             Err(_) => Ok(Expression::Value(taken.trim().to_string())),
@@ -142,54 +185,49 @@ impl Expression {
             }
         }
     }
+}
 
-    // TODO: Change to fmt (Display trait).
-    pub fn to_string(&self, str: Option<String>) -> String {
-        let mut str = str.unwrap_or_else(|| String::new());
+impl Display for Expression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Expression::Function { name, inputs } => {
-                str.push(EQUAL_SIGN);
-                str.push_str(name);
-                str.push(OPENING_BRACKET);
+                f.write_char(EQUAL_SIGN)?;
+                f.write_str(name)?;
+                f.write_char(OPENING_BRACKET)?;
                 for (i, input) in inputs.iter().enumerate() {
-                    str = input.to_string(Some(str));
+                    input.fmt(f)?;
                     if i < inputs.len() - 1 {
-                        str.push(COMMA);
+                        f.write_char(COMMA)?;
                     }
                 }
-                str.push(CLOSING_BRACKET);
-                str
+                f.write_char(CLOSING_BRACKET)?;
             }
             Expression::Reference(reference) => match reference {
                 Reference::Single(key) => {
-                    str.push_str(&key.to_reference());
-                    str
+                    f.write_str(&key.to_string())?;
                 }
                 Reference::BoundedRange(range_start, range_end) => {
-                    str.push_str(&range_start.to_reference());
-                    str.push(COLON);
-                    str.push_str(&range_end.to_reference());
-                    str
+                    f.write_str(&range_start.to_string())?;
+                    f.write_char(COLON)?;
+                    f.write_str(&range_end.to_string())?;
                 }
                 Reference::UnboundedColRange(range_start, col) => {
-                    str.push_str(&range_start.to_reference());
-                    str.push(COLON);
+                    f.write_str(&range_start.to_string())?;
+                    f.write_char(COLON)?;
                     // TODO: Look around and maybe remove some clone().
-                    str.push_str(&usize_to_column_name(col.clone()));
-                    str
+                    f.write_str(&usize_to_column_name(col.clone()))?;
                 }
                 Reference::UnboundedRowRange(range_start, row) => {
-                    str.push_str(&range_start.to_reference());
-                    str.push(COLON);
-                    str.push_str(&row.to_string());
-                    str
+                    f.write_str(&range_start.to_string())?;
+                    f.write_char(COLON)?;
+                    f.write_str(&row.to_string())?;
                 }
             },
             Expression::Value(value) => {
-                str.push_str(&value);
-                str
+                f.write_str(&value)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -257,6 +295,36 @@ mod test {
             let expr = Expression::parse(input).expect("parsing failed");
             println!("{expr:#?}");
             assert_eq!(expr, Value(String::from("some text")));
+        }
+        {
+            let input = r#"=concat(A1:A, ", ")"#;
+            let expr = Expression::parse(input).expect("parsing failed");
+            println!("{expr:#?}");
+            assert_eq!(
+                expr,
+                Function {
+                    name: String::from("concat"),
+                    inputs: vec![
+                        Expression::Reference(Reference::UnboundedColRange(CellPointer(1, 1), 1)),
+                        Value(String::from(", ")),
+                    ],
+                }
+            );
+        }
+        {
+            let input = r#"=concat(A1:A, "lol")"#;
+            let expr = Expression::parse(input).expect("parsing failed");
+            println!("{expr:#?}");
+            assert_eq!(
+                expr,
+                Function {
+                    name: String::from("concat"),
+                    inputs: vec![
+                        Expression::Reference(Reference::UnboundedColRange(CellPointer(1, 1), 1)),
+                        Value(String::from("lol")),
+                    ],
+                }
+            );
         }
     }
 

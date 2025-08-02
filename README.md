@@ -21,7 +21,7 @@ Live at: https://sheeet.matejpavlicek.cz
   - [x] select and manipulate multiple cells
   - [x] deselect cell out when clicking in the editor
   - [ ] add and remove columns and rows
-- [ ] support for range references
+- [x] support for range references
 - [ ] create public lib crate with basic functions in prelude
   - `add`, `sub`, `mul`, `div`, `pow`, `mod` (match the operators below)
   - `avg`, `sum`, `med`, `concat`
@@ -49,7 +49,7 @@ Live at: https://sheeet.matejpavlicek.cz
 
 ### Fixes
 - [ ] self reference
-- [ ] update unbounded range dependents
+- [x] update unbounded range dependents
 
 ## Security / Isolation Brainstorm
 I believe there are two main problems:

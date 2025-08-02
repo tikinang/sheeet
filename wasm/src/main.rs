@@ -26,14 +26,14 @@ pub fn run_evaluate(input: &str) -> JsValue {
 
 #[wasm_bindgen]
 pub fn get_cell_raw_value(id: &str) -> String {
-    let key = CellPointer::from_str(id);
+    let key = CellPointer::from_serializable(id);
     STATE.with_borrow(|state| state.get_cell_raw_value(key).unwrap_or_default())
 }
 
 #[wasm_bindgen]
 pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<String, JsValue> {
     STATE.with_borrow_mut(|state| {
-        let cell_pointer = CellPointer::from_str(id);
+        let cell_pointer = CellPointer::from_serializable(id);
         match &raw.len() {
             // Remove.
             0 => {
@@ -57,7 +57,10 @@ pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<String, JsValue> {
 #[wasm_bindgen]
 pub fn copy_cell_get_raw_value(from_id: &str, to_id: &str) -> Result<String, JsValue> {
     STATE.with_borrow(|state| {
-        state.copy_cell_expression(CellPointer::from_str(from_id), CellPointer::from_str(to_id))
+        state.copy_cell_expression(
+            CellPointer::from_serializable(from_id),
+            CellPointer::from_serializable(to_id),
+        )
     })
 }
 
@@ -159,7 +162,7 @@ pub fn init_app() -> Result<(), JsValue> {
                             0 => Some(row.to_string()),
                             column => {
                                 td.set_id(&format!("{}-{}", column, row));
-                                let key = CellPointer::from_column_and_row(column, row);
+                                let key = CellPointer::from_col_and_row(column, row);
                                 match state.get_cell_resolved_value(key) {
                                     Some(value) => Some(js_value_to_string(value)),
                                     None => match state.get_cell_raw_value(key) {
