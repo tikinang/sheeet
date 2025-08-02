@@ -81,10 +81,22 @@
     window.apiBaseUrl = getApiBaseUrl();
 
     // This function is called from Rust to evaluate the user functions.
-    // TODO: I am really not sure about performance of this, it is a working prototype.
     window.js_evaluate = function (fnName, vars) {
-        return window.userWasmModule[fnName](...vars)
+        return window.userWasmModule[fnName](...vars);
     }
+    
+    window.resolveValue = async function(value) {
+        if (value instanceof Promise) {
+            return await value;
+        }
+        return value;
+    }
+
+    addEventListener("display-cell-value", async (event) => {
+        console.debug("display cell value hook:", event.detail)
+        document.getElementById(event.detail.cellId).textContent = await window.resolveValue(event.detail.jsValue)
+    })
+
 
     async function loadWasmBindgenModule(jsUrl, wasmUrl) {
         const module = await import(jsUrl + `?version=${Number(new Date())}`);
@@ -273,7 +285,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
 
         await compile();
     })
-    
+
     window.secretApiKey = localStorage.getItem("secret-api-key");
     if (window.secretApiKey) {
         const el = document.getElementById("api-key")
@@ -281,7 +293,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
         el.classList.add("blurred")
         document.getElementById("set-api-key").textContent = "Reset"
     }
-    
+
     await window.compile();
 </script>
 
@@ -400,7 +412,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
 
     document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
         event.preventDefault();
-        event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim());
+        event.target.textContent = await window.resolveValue(window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim()));
         unsave();
     });
 
@@ -453,7 +465,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     save();
                     break;
                 case 'c':
-                    if (!rangeStartCell) {
+                    if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                         break;
                     }
                     event.preventDefault();
@@ -461,7 +473,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     copiedRangeEndCell = rangeEndCell
                     break;
                 case 'x':
-                    if (!rangeStartCell) {
+                    if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                         break;
                     }
                     event.preventDefault();
@@ -470,27 +482,27 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     cut = true;
                     break;
                 case 'v':
-                    if (!rangeStartCell) {
+                    if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
                         break;
                     }
-                    event.preventDefault();
                     if (!copiedRangeStartCell || !copiedRangeEndCell) {
                         break;
                     }
+                    event.preventDefault();
                     const targetStartCell = getCellCoordinates(rangeStartCell);
-                    forEachCell(copiedRangeStartCell, copiedRangeEndCell, (col, row, boundaries) => {
+                    forEachCell(copiedRangeStartCell, copiedRangeEndCell, async (col, row, boundaries) => {
                         const colDistance = targetStartCell.col - boundaries.minCol
                         const rowDistance = targetStartCell.row - boundaries.minRow
 
                         const copiedCellId = `${col}-${row}`;
                         const targetCellId = `${col + colDistance}-${row + rowDistance}`
                         const newRawValue = window.wasmBindings.copy_cell_get_raw_value(copiedCellId, targetCellId);
-                        document.getElementById(targetCellId).textContent = window.wasmBindings.set_cell_raw_value(targetCellId, newRawValue);
+                        document.getElementById(targetCellId).textContent = await window.resolveValue(window.wasmBindings.set_cell_raw_value(targetCellId, newRawValue));
                         unsave();
 
                         if (cut) {
                             const cutCell = document.getElementById(copiedCellId);
-                            cutCell.textContent = window.wasmBindings.set_cell_raw_value(cutCell.id, '');
+                            cutCell.textContent = await window.resolveValue(window.wasmBindings.set_cell_raw_value(cutCell.id, ''));
                             unsave();
                             cut = false;
                         }
@@ -530,10 +542,10 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     break;
                 }
                 event.preventDefault();
-                forEachCell(rangeStartCell, rangeEndCell, (col, row, _) => {
+                forEachCell(rangeStartCell, rangeEndCell, async (col, row, _) => {
                     const targetCellId = `${col}-${row}`;
                     const toDeleteCell = document.getElementById(targetCellId);
-                    toDeleteCell.textContent = window.wasmBindings.set_cell_raw_value(toDeleteCell.id, '');
+                    toDeleteCell.textContent = await window.resolveValue(window.wasmBindings.set_cell_raw_value(toDeleteCell.id, ''));
                     unsave();
                 })
                 break;

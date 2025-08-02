@@ -26,13 +26,38 @@ const OPENING_BRACKET: char = '(';
 const CLOSING_BRACKET: char = ')';
 const DOUBLE_QUOTE: char = '"';
 
+#[derive(Default)]
+struct Taken {
+    content: String,
+    is_literal: bool,
+}
+
+impl Taken {
+    fn push(&mut self, ch: char) {
+        self.content.push(ch);
+    }
+    fn empty(&self) -> bool {
+        self.content.len() == 0
+    }
+}
+
+impl Display for Taken {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.is_literal {
+            f.write_str("lit'")?;
+        }
+        f.write_str(&self.content)?;
+        Ok(())
+    }
+}
+
 impl Expression {
     pub fn parse(input: &str) -> Result<Expression, &'static str> {
         Self::parse_inner(input, true)
     }
 
     fn parse_inner(mut input: &str, root: bool) -> Result<Expression, &'static str> {
-        test_log!("--parse expression: '{input}'");
+        test_log!(r#"--parse expression: "{input}""#);
         input = match input.strip_prefix(EQUAL_SIGN) {
             Some(input) => input,
             None => {
@@ -43,34 +68,34 @@ impl Expression {
             }
         };
 
-        let mut taken = String::new();
-        let mut quoted: Option<String> = None;
+        let mut taken = Taken::default();
+        let mut inside_quoted = false;
         let mut function_expr: Option<Expression> = None;
         let mut opening_bracket_count: usize = 0;
         for c in input.chars() {
             test_log!(
-                r#"char: '{c}' | bracket_count: {opening_bracket_count} | taken: "{taken}" | quoted: {quoted:?}"#
+                r#"-char: '{c}' | bracket_count: {opening_bracket_count} | taken: "{taken}" | inside_quoted: {inside_quoted}"#
             );
 
             if c == DOUBLE_QUOTE {
-                match quoted.take() {
-                    Some(quoted) => {
-                        test_log!(r#"ending quoted: "{quoted}""#);
-                        if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
-                            inputs.push(Expression::Value(quoted));
-                        }
-                    }
-                    None => {
-                        test_log!("new quoted");
-                        quoted = Some(String::new());
-                    }
-                };
+                if !inside_quoted {
+                    taken.is_literal = true;
+                    test_log!("start quoted");
+                } else {
+                    test_log!(r#"ending quoted: "{taken}""#);
+                }
+                inside_quoted = !inside_quoted;
                 continue;
             }
 
-            if let Some(quoted) = &mut quoted {
-                test_log!("pushing char to quoted: {c}");
-                quoted.push(c);
+            if inside_quoted {
+                test_log!("pushing char to quoted: '{c}'");
+                taken.push(c);
+                continue;
+            }
+
+            if c.is_whitespace() {
+                test_log!("ignoring whitespace");
                 continue;
             }
 
@@ -84,16 +109,17 @@ impl Expression {
                     taken.push(c);
                     continue;
                 }
-                if taken.len() == 0 {
+                if taken.empty() {
                     return Err("unexpected comma, no arguments between");
                 }
-                if taken.trim().len() > 0 {
-                    let expr = Self::parse_inner(&taken, false)?;
-                    if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
-                        inputs.push(expr);
-                    }
+                let expr = match &taken.is_literal {
+                    true => Expression::Value(taken.content),
+                    false => Self::parse_inner(&taken.content, false)?,
+                };
+                if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
+                    inputs.push(expr);
                 }
-                taken = String::new();
+                taken = Taken::default();
                 continue;
             }
 
@@ -105,10 +131,10 @@ impl Expression {
                     continue;
                 }
                 function_expr = Some(Expression::Function {
-                    name: taken.trim().to_string(),
+                    name: taken.to_string(),
                     inputs: Vec::new(),
                 });
-                taken = String::new();
+                taken = Taken::default();
                 continue;
             }
 
@@ -119,11 +145,12 @@ impl Expression {
                     taken.push(c);
                     continue;
                 }
-                if taken.trim().len() > 0 {
-                    let expr = Self::parse_inner(&taken.trim(), false)?;
-                    if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
-                        inputs.push(expr);
-                    }
+                let expr = match &taken.is_literal {
+                    true => Expression::Value(taken.content),
+                    false => Self::parse_inner(&taken.content, false)?,
+                };
+                if let Some(Expression::Function { inputs, .. }) = &mut function_expr {
+                    inputs.push(expr);
                 }
                 return function_expr.ok_or("expected function expression to be present");
             }
@@ -137,10 +164,10 @@ impl Expression {
         }
 
         test_log!(r#"return value: "{taken}""#);
-        match Reference::parse(&taken.trim()) {
-            Ok(reference) => Ok(Expression::Reference(reference)),
-            Err(_) => Ok(Expression::Value(taken.trim().to_string())),
-        }
+        Ok(match Reference::parse(&taken.content) {
+            Ok(reference) => Expression::Reference(reference),
+            Err(_) => Expression::Value(taken.content),
+        })
     }
 
     pub fn copy_with_distance(&self, distance: (isize, isize)) -> Self {
@@ -322,6 +349,21 @@ mod test {
                     inputs: vec![
                         Expression::Reference(Reference::UnboundedColRange(CellPointer(1, 1), 1)),
                         Value(String::from("lol")),
+                    ],
+                }
+            );
+        }
+        {
+            let input = r#"=fetch_json_path("https://domain.com", "commit.hash")"#;
+            let expr = Expression::parse(input).expect("parsing failed");
+            println!("{expr:#?}");
+            assert_eq!(
+                expr,
+                Function {
+                    name: String::from("fetch_json_path"),
+                    inputs: vec![
+                        Value(String::from("https://domain.com")),
+                        Value(String::from("commit.hash")),
                     ],
                 }
             );

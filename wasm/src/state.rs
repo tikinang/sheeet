@@ -7,7 +7,7 @@ use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
-use web_sys::window;
+use web_sys::{CustomEvent, CustomEventInit, window};
 
 #[wasm_bindgen]
 extern "C" {
@@ -165,14 +165,16 @@ impl State {
         self: &Self,
         from: CellPointer,
         to: CellPointer,
-    ) -> Result<String, JsValue> {
+    ) -> Result<JsValue, JsValue> {
         debug_log!("copy_cell: {from} -> {to}");
         match self.cells.get(&from) {
             None => Err(format!("couldn't copy {from}, cell not found").into()),
-            Some(cell) => Ok(cell
-                .parsed_expression
-                .copy_with_distance(from.distance(&to))
-                .to_string()),
+            Some(cell) => Ok(JsValue::from_str(
+                &cell
+                    .parsed_expression
+                    .copy_with_distance(from.distance(&to))
+                    .to_string(),
+            )),
         }
     }
 
@@ -274,7 +276,7 @@ impl State {
             "resolve_cell_value_and_dependencies: update resolved cell value: {key} -> {new_resolved_value:?}"
         );
         if let ResolveDisplay::Update = display {
-            display_cell_value(key, new_resolved_value.clone())?;
+            dispatch_display_cell_value_event(key, new_resolved_value.clone())?;
         }
         self.cells.entry(key).and_modify(|entry| {
             entry.resolved_value = Some(new_resolved_value.clone());
@@ -437,8 +439,12 @@ impl State {
                         for row in min_row..=max_row {
                             let key = CellPointer(col, row);
                             dependencies.singles.insert(key.clone());
-                            ref_values
-                                .push(&self.resolve_single_reference_value_and_dependencies(&key)?);
+                            let ref_value =
+                                self.resolve_single_reference_value_and_dependencies(&key)?;
+                            if ref_value.is_null() || ref_value.is_undefined() {
+                                continue;
+                            }
+                            ref_values.push(&ref_value);
                         }
                     }
                     Ok(JsValue::from(ref_values))
@@ -456,8 +462,12 @@ impl State {
                             .map(|key| key.clone())
                             .collect::<Vec<CellPointer>>();
                         for key in keys {
-                            ref_values
-                                .push(&self.resolve_single_reference_value_and_dependencies(&key)?);
+                            let ref_value =
+                                self.resolve_single_reference_value_and_dependencies(&key)?;
+                            if ref_value.is_null() || ref_value.is_undefined() {
+                                continue;
+                            }
+                            ref_values.push(&ref_value);
                         }
                     }
                     Ok(JsValue::from(ref_values))
@@ -475,8 +485,12 @@ impl State {
                             .map(|key| key.clone())
                             .collect::<Vec<CellPointer>>();
                         for key in keys {
-                            ref_values
-                                .push(&self.resolve_single_reference_value_and_dependencies(&key)?);
+                            let ref_value =
+                                self.resolve_single_reference_value_and_dependencies(&key)?;
+                            if ref_value.is_null() || ref_value.is_undefined() {
+                                continue;
+                            }
+                            ref_values.push(&ref_value);
                         }
                     }
                     Ok(JsValue::from(ref_values))
@@ -519,29 +533,23 @@ impl State {
     }
 }
 
-fn display_cell_value(key: CellPointer, value: JsValue) -> Result<(), JsValue> {
-    let window = window().ok_or("could not get window")?;
-    let document = window.document().ok_or("could not get document")?;
-    let element = document
-        .get_element_by_id(&key.to_serializable())
-        .ok_or(&format!(
-            "could not get element by id: {}",
-            key.to_serializable()
-        ))?;
-    element.set_text_content(Some(&js_value_to_string(value)));
-    Ok(())
-}
+pub fn dispatch_display_cell_value_event(key: CellPointer, value: JsValue) -> Result<(), JsValue> {
+    let window = window().unwrap();
 
-pub fn js_value_to_string(value: JsValue) -> String {
-    if let Some(value) = value.as_string() {
-        value
-    } else if let Some(value) = value.as_bool() {
-        value.to_string()
-    } else if let Some(value) = value.as_f64() {
-        value.to_string()
-    } else if value.is_null() {
-        String::new()
-    } else {
-        format!("unknown JS value type: {:?}", value)
-    }
+    let detail = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &detail,
+        &"cellId".into(),
+        &JsValue::from_str(&key.to_serializable()),
+    )?;
+    js_sys::Reflect::set(&detail, &"jsValue".into(), &value)?;
+
+    let event_init = CustomEventInit::new();
+    event_init.set_detail(&detail);
+    event_init.set_cancelable(true);
+
+    let event = CustomEvent::new_with_event_init_dict("display-cell-value", &event_init)?;
+    window.dispatch_event(&event)?;
+
+    Ok(())
 }

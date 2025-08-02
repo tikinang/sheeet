@@ -1,6 +1,8 @@
 use sheeet_wasm::expression::Expression;
 use sheeet_wasm::reference::{CellPointer, usize_to_column_name};
-use sheeet_wasm::state::{Dependencies, SerializableState, State, js_value_to_string, log};
+use sheeet_wasm::state::{
+    Dependencies, SerializableState, State, dispatch_display_cell_value_event, log,
+};
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use web_sys::window;
@@ -23,23 +25,25 @@ pub fn get_cell_raw_value(id: &str) -> String {
 }
 
 #[wasm_bindgen]
-pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<String, JsValue> {
+pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<JsValue, JsValue> {
     STATE.with_borrow_mut(|state| {
         let cell_pointer = CellPointer::from_serializable(id);
         match &raw.len() {
             // Remove.
             0 => {
                 state.remove_cell(cell_pointer)?;
-                Ok(String::new())
+                Ok(JsValue::null())
             }
             // Upsert.
             _ => {
                 let resolved_value = state.upsert_cell(cell_pointer, raw)?;
                 if resolved_value.is_null() {
                     // Show the raw value if we can't find reference.
-                    Ok(state.get_cell_raw_value(cell_pointer).unwrap_or_default())
+                    Ok(JsValue::from_str(
+                        &state.get_cell_raw_value(cell_pointer).unwrap_or_default(),
+                    ))
                 } else {
-                    Ok(js_value_to_string(resolved_value))
+                    Ok(resolved_value)
                 }
             }
         }
@@ -47,7 +51,7 @@ pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<String, JsValue> {
 }
 
 #[wasm_bindgen]
-pub fn copy_cell_get_raw_value(from_id: &str, to_id: &str) -> Result<String, JsValue> {
+pub fn copy_cell_get_raw_value(from_id: &str, to_id: &str) -> Result<JsValue, JsValue> {
     STATE.with_borrow(|state| {
         state.copy_cell_expression(
             CellPointer::from_serializable(from_id),
@@ -149,25 +153,30 @@ pub fn init_app() -> Result<(), JsValue> {
                     let tr = document.create_element("tr")?;
                     table_body.append_with_node_1(&tr)?;
                     for column in 0..columns {
+                        let mut cell_value = None;
+                        let key = CellPointer::from_col_and_row(column, row);
+
                         let td = document.create_element("td")?;
-                        let val = match column {
-                            0 => Some(row.to_string()),
+                        match column {
+                            0 => td.set_text_content(Some(&row.to_string())),
                             column => {
                                 td.set_id(&format!("{}-{}", column, row));
-                                let key = CellPointer::from_col_and_row(column, row);
-                                match state.get_cell_resolved_value(key) {
-                                    Some(value) => Some(js_value_to_string(value)),
+                                cell_value = match state.get_cell_resolved_value(key) {
+                                    Some(value) => Some(value),
                                     None => match state.get_cell_raw_value(key) {
                                         None => None,
-                                        Some(val) => Some(format!("unresolved value '{val}'")),
+                                        Some(value) => Some(JsValue::from_str(&format!(
+                                            r#"unresolved value: "{value}""#
+                                        ))),
                                     },
                                 }
                             }
                         };
-                        if let Some(val) = val {
-                            td.set_text_content(Some(&val));
-                        };
+
                         tr.append_with_node_1(&td)?;
+                        if let Some(value) = cell_value {
+                            dispatch_display_cell_value_event(key, value)?
+                        }
                     }
                 }
             }

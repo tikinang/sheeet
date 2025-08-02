@@ -1,6 +1,6 @@
 [package]
 name = "sheeet-funcs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Sheeet base functions crate."
 license = "MIT"
@@ -9,6 +9,8 @@ homepage = "https://sheeet.matejpavlicek.cz"
 
 [dependencies]
 wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = { optional = true, version = "0.4.50" }
+web-sys = { optional = true, version = "0.3.77", features = ['Headers', 'Request', 'RequestInit', 'RequestMode', 'Response', 'Window'] }
 
 [features]
-http = []
+fetch = ["wasm-bindgen-futures", "web-sys"]

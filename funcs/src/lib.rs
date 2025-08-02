@@ -9,7 +9,13 @@ pub mod prelude {
     pub use crate::mul;
     pub use crate::sub;
     pub use crate::sum;
+
+    #[cfg(feature = "fetch")]
+    pub use crate::fetch::fetch_get_json_path;
 }
+
+#[cfg(feature = "fetch")]
+mod fetch;
 
 #[wasm_bindgen]
 pub fn add(a: f64, b: f64) -> f64 {
