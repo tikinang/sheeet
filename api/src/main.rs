@@ -1,5 +1,9 @@
 use actix_cors::Cors;
 use actix_files::Files;
+use actix_web::body::BoxBody;
+use actix_web::dev::{ServiceRequest, ServiceResponse};
+use actix_web::http::{Method, header};
+use actix_web::middleware::{Next, from_fn};
 use actix_web::{App, Error, HttpResponse, HttpServer, put, web};
 use bytes::Bytes;
 use futures_util::Stream;
@@ -8,7 +12,7 @@ use log::info;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::{env, fs, thread};
 use tokio::sync::mpsc;
@@ -142,7 +146,7 @@ async fn compile(
             .collect()
     });
     info!("compile for workspace ID: {workspace_id}");
-    let workspace_path = Path::new(&config.workspaces_path).join(&workspace_id);
+    let workspace_path = config.workspaces_path.join(&workspace_id);
     if !fs::exists(&workspace_path)? {
         if query.workspace_id.is_some() {
             return Ok(HttpResponse::NotFound().body("Invalid workspace ID"));
@@ -257,33 +261,76 @@ async fn compile(
         .streaming(stream))
 }
 
+#[derive(Clone)]
 struct AppConfig {
-    workspaces_path: String,
+    workspaces_path: PathBuf,
+    secret_api_key: Option<String>,
+}
+
+async fn authorization_middleware(
+    req: ServiceRequest,
+    next: Next<BoxBody>,
+) -> Result<ServiceResponse<BoxBody>, Error> {
+    if req.method() == Method::OPTIONS {
+        return next.call(req).await;
+    }
+    if let Some(app_config) = req.app_data::<web::Data<AppConfig>>() {
+        if let Some(secret_api_key) = &app_config.secret_api_key {
+            match req.headers().get(header::AUTHORIZATION) {
+                None => {
+                    let response =
+                        HttpResponse::Unauthorized().body("Missing authorization header");
+                    return Ok(req.into_response(response));
+                }
+                Some(key) => {
+                    if secret_api_key != key {
+                        let response = HttpResponse::Forbidden().body("Invalid API key");
+                        return Ok(req.into_response(response));
+                    }
+                }
+            }
+        }
+    };
+    next.call(req).await
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
 
-    HttpServer::new(move || {
-        let app_config = AppConfig {
-            workspaces_path: env::var("WORKSPACES_PATH")
-                .unwrap_or("/home/tikinang/workspaces".into()),
-        };
+    let app_config = AppConfig {
+        workspaces_path: env::var("SHEEET_WORKSPACES_PATH")
+            .map(|val| Path::new(&val).to_path_buf())
+            .unwrap_or(
+                Path::new(
+                    &env::var("HOME").expect("expected 'HOME' environment variable to be set"),
+                )
+                .join("workspaces"),
+            ),
+        secret_api_key: env::var("SHEEET_SECRET_API_KEY").ok(),
+    };
 
+    info!(
+        "will serve artifacts from: {:?}",
+        app_config.workspaces_path
+    );
+
+    HttpServer::new(move || {
         // TODO: CORS.
         let cors = Cors::default()
             .allow_any_origin()
             .allow_any_method()
             .allow_any_header();
 
-        App::new().service(
-            web::scope("/api")
-                .service(Files::new("/workspaces", &app_config.workspaces_path))
-                .app_data(web::Data::new(app_config))
-                .service(compile)
-                .wrap(cors),
-        )
+        App::new()
+            .app_data(web::Data::new(app_config.clone()))
+            .service(Files::new("/api/workspaces", &app_config.workspaces_path))
+            .service(
+                web::scope("/api")
+                    .service(compile)
+                    .wrap(from_fn(authorization_middleware)),
+            )
+            .wrap(cors)
     })
     .bind(("0.0.0.0", 8080))?
     .workers(4)

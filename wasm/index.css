@@ -159,8 +159,18 @@ td:hover {
 .indicator.red { background-color: red; }
 .indicator.orange { background-color: orange; }
 
+#api-key {
+    display: none;
+}
+
 #api-key.blurred {
+    display: block;
     filter: blur(3px);
+}
+
+#api-key.blurred:hover {
+    filter: none;
+    cursor: none;
 }
 
 button, input[type="submit"] {
