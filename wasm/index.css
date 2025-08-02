@@ -161,14 +161,19 @@ td:hover {
 
 #api-key {
     display: none;
+    max-width: 4rem;
 }
 
 #api-key.blurred {
     display: block;
     filter: blur(3px);
+    overflow: clip;
+    text-overflow: clip;
+    white-space: nowrap;
 }
 
 #api-key.blurred:hover {
+    text-overflow: ellipsis;
     filter: none;
     cursor: none;
 }

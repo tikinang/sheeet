@@ -143,7 +143,7 @@
                 localStorage.removeItem("workspace-id");
                 document.getElementById("workspace-id").textContent = ""
             }
-            setCompileStatus(`HTTP: ${response.status} (try pressing F5)`, "red");
+            setCompileStatus(`HTTP: ${response.status}`, "red");
             return;
         }
 
