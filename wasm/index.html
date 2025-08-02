@@ -93,7 +93,6 @@
     }
 
     addEventListener("display-cell-value", async (event) => {
-        console.debug("display cell value hook:", event.detail)
         document.getElementById(event.detail.cellId).textContent = await window.resolveValue(event.detail.jsValue)
     })
 
@@ -101,7 +100,6 @@
     async function loadWasmBindgenModule(jsUrl, wasmUrl) {
         const module = await import(jsUrl + `?version=${Number(new Date())}`);
         await module.default({module_or_path: wasmUrl});
-        console.log(module)
         window.userWasmModule = module;
         return module;
     }
