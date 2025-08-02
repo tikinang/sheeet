@@ -27,9 +27,9 @@ Live at: https://sheeet.matejpavlicek.cz
   - `avg`, `sum`, `med`, `concat`
   - `http_get` (enabled by a feature, keep the first compile nice and fast)
 - [ ] add operators support (`+`,`-`,`*`,`/`,`^`,`%`) in expression parsing
-- [ ] enhance workspace isolation
+- [x] enhance workspace isolation
   - allow making API access private (`SHEEET_SECRET_API_KEY`)
-- [ ] workspace management
+- [x] workspace management
   - reset workspace (both ID and sheet data)
   - set secret API key
   - workspace status bar (ID, API key set, compile status (compiling, ready, error), unsaved status (saved, unsaved))
@@ -50,6 +50,7 @@ Live at: https://sheeet.matejpavlicek.cz
 ### Fixes
 - [ ] self reference
 - [x] update unbounded range dependents
+- [ ] error handling and displaying (`=add(A1,,)` panics)
 
 ## Security / Isolation Brainstorm
 I believe there are two main problems:

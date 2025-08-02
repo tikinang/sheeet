@@ -12,7 +12,7 @@
     <div class="half-section">
         <div class="status-bar">
             <form id="test-expression-form" class="status-item">
-                <label for="test-expression">test expression: </label>
+                <label for="test-expression">Test Expression: </label>
                 <input type="text" id="test-expression" placeholder="=sub(add(4, 7), 3)"/>
                 <input type="submit" value="Compute">
             </form>
@@ -36,9 +36,8 @@
             </div>
             <div class="status-item">
                 <span>API Key:</span>
-                <span id="api-key">
-                    <button id="set-api-key">Set</button>
-                </span>
+                <span id="api-key"></span>
+                <button id="set-api-key">Set</button>
             </div>
             <div class="status-item">
                 <span class="indicator orange"></span>
@@ -124,11 +123,15 @@
             url = url + `?workspace_id=${workspaceId}`
         }
 
+        const headers = {
+            "Content-Type": "application/json",
+        };
+        if (window.secretApiKey) {
+            headers["Authorization"] = window.secretApiKey;
+        }
         const response = await fetch(url, {
             method: 'PUT',
-            headers: {
-                "Content-Type": "application/json",
-            },
+            headers,
             body: JSON.stringify({
                 lib_rs: document.getElementById("lib-rs-content").textContent,
                 cargo_toml: document.getElementById("cargo-toml-content").textContent,
@@ -236,8 +239,8 @@ pub fn sub(a: f64, b: f64) -> f64 {
 }
 `
     )
-    
-    document.getElementById("reset-workspace").addEventListener("click", event => {
+
+    document.getElementById("reset-workspace").addEventListener("click", _ => {
         if (confirm("Are you sure? All your sheet data and code will be irreversibly deleted.")) {
             localStorage.removeItem("cargo-toml-content");
             localStorage.removeItem("lib-rs-content");
@@ -248,6 +251,37 @@ pub fn sub(a: f64, b: f64) -> f64 {
         }
     })
 
+    document.getElementById("set-api-key").addEventListener("click", async _ => {
+        if (window.secretApiKey) {
+            window.secretApiKey = null;
+            const el = document.getElementById("api-key")
+            el.innerText = "";
+            el.classList.remove("blurred")
+            document.getElementById("set-api-key").textContent = "Set"
+            localStorage.removeItem("secret-api-key");
+        } else {
+            const key = prompt("Enter you secret API key:");
+            if (key) {
+                window.secretApiKey = key;
+                const el = document.getElementById("api-key")
+                el.textContent = window.secretApiKey
+                el.classList.add("blurred")
+                document.getElementById("set-api-key").textContent = "Reset"
+                localStorage.setItem("secret-api-key", key);
+            }
+        }
+
+        await compile();
+    })
+    
+    window.secretApiKey = localStorage.getItem("secret-api-key");
+    if (window.secretApiKey) {
+        const el = document.getElementById("api-key")
+        el.textContent = window.secretApiKey
+        el.classList.add("blurred")
+        document.getElementById("set-api-key").textContent = "Reset"
+    }
+    
     await window.compile();
 </script>
 
@@ -572,8 +606,8 @@ pub fn sub(a: f64, b: f64) -> f64 {
     document.getElementById('test-expression-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const input = document.getElementById('test-expression').value;
-        const output = await window.wasmBindings.run_evaluate(input); 
-        document.getElementById("test-expression-result").textContent = `= ${output}`  
+        const output = await window.wasmBindings.run_evaluate(input);
+        document.getElementById("test-expression-result").textContent = `= ${output}`
     });
 </script>
 

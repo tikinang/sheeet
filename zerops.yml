@@ -22,7 +22,7 @@ zerops:
           httpSupport: true
       envVariables:
         RUST_LOG: debug
-        WORKSPACES_PATH: /var/www/workspaces
+        SHEEET_WORKSPACES_PATH: /var/www/workspaces
       initCommands:
         - mkdir -p /var/www/workspaces
       start: ./sheeet-api
