@@ -34,7 +34,7 @@ struct Cell {
     parsed_expression: Expression,
     raw_value: String,
     resolved_value: Option<JsValue>,
-    resolved_dependencies: Option<HashSet<CellPointer>>,
+    resolved_dependencies: Option<Dependencies>,
 }
 
 #[derive(Default)]
@@ -42,7 +42,9 @@ pub struct State {
     pub initialized: bool,
     pub sheet_bounds: (usize, usize),
     cells: HashMap<CellPointer, Cell>,
-    reverse_index: HashMap<CellPointer, HashSet<CellPointer>>,
+    reverse_index_singles: HashMap<CellPointer, HashSet<CellPointer>>,
+    reverse_index_cols: HashMap<usize, HashSet<CellPointer>>,
+    reverse_index_rows: HashMap<usize, HashSet<CellPointer>>,
 }
 
 impl State {
@@ -51,7 +53,9 @@ impl State {
             initialized: true,
             sheet_bounds: (27, 65),
             cells: HashMap::new(),
-            reverse_index: HashMap::new(),
+            reverse_index_singles: HashMap::new(),
+            reverse_index_cols: HashMap::new(),
+            reverse_index_rows: HashMap::new(),
         }
     }
 
@@ -93,7 +97,9 @@ impl SerializableState {
             initialized: true,
             sheet_bounds: self.sheet_bounds,
             cells: HashMap::with_capacity(self.data.len()),
-            reverse_index: HashMap::new(),
+            reverse_index_singles: HashMap::new(),
+            reverse_index_cols: HashMap::new(),
+            reverse_index_rows: HashMap::new(),
         };
         for (k, v) in self.data {
             new_state.insert_cell(k.clone(), &v)?;
@@ -120,6 +126,13 @@ impl ResolveDisplay {
             _ => ResolveDisplay::Update,
         }
     }
+}
+
+#[derive(Default, Clone)]
+pub struct Dependencies {
+    singles: HashSet<CellPointer>,
+    cols: HashSet<usize>,
+    rows: HashSet<usize>,
 }
 
 impl State {
@@ -158,7 +171,7 @@ impl State {
             None => Err(format!("couldn't copy {from}, cell not found").into()),
             Some(cell) => Ok(cell
                 .parsed_expression
-                .deep_copy(from.distance(&to))
+                .copy_with_distance(from.distance(&to))
                 .to_string(None)),
         }
     }
@@ -188,17 +201,53 @@ impl State {
         debug_log!("remove_cell: {key}");
         if let Some(mut cell) = self.cells.remove(&key) {
             if let Some(dependencies) = cell.resolved_dependencies.take() {
-                for dependency in dependencies {
-                    self.reverse_index
+                for dependency in dependencies.singles {
+                    self.reverse_index_singles
+                        .entry(dependency)
+                        .and_modify(|dependents| _ = dependents.remove(&key));
+                }
+                for dependency in dependencies.cols {
+                    self.reverse_index_cols
+                        .entry(dependency)
+                        .and_modify(|dependents| _ = dependents.remove(&key));
+                }
+                for dependency in dependencies.rows {
+                    self.reverse_index_rows
                         .entry(dependency)
                         .and_modify(|dependents| _ = dependents.remove(&key));
                 }
             }
         };
-        if let Some(dependents) = self.reverse_index.remove(&key) {
+        if let Some(dependents) = self.reverse_index_singles.remove(&key) {
             for dependent in dependents {
-                debug_log!("remove_cell: update dependent: {dependent}");
+                debug_log!("remove_cell: update single dependent: {dependent}");
                 self.resolve_cell_value_and_dependencies(dependent, ResolveDisplay::Update)?;
+            }
+        };
+        if let Some(dependents) = self.reverse_index_cols.get(&key.0) {
+            let dependents = dependents.clone();
+            for dependent in &dependents {
+                debug_log!("remove_cell: update col dependent: {dependent}");
+                self.resolve_cell_value_and_dependencies(
+                    dependent.clone(),
+                    ResolveDisplay::Update,
+                )?;
+            }
+            if dependents.len() == 0 {
+                _ = self.reverse_index_cols.remove(&key.0);
+            }
+        };
+        if let Some(dependents) = self.reverse_index_rows.get(&key.1) {
+            let dependents = dependents.clone();
+            for dependent in &dependents {
+                debug_log!("remove_cell: update row dependent: {dependent}");
+                self.resolve_cell_value_and_dependencies(
+                    dependent.clone(),
+                    ResolveDisplay::Update,
+                )?;
+            }
+            if dependents.len() == 0 {
+                _ = self.reverse_index_rows.remove(&key.1);
             }
         };
         Ok(())
@@ -215,7 +264,7 @@ impl State {
         let old_dependencies = cell.resolved_dependencies.take();
         let parsed_expression = cell.parsed_expression.clone();
 
-        let mut new_dependencies = HashSet::new();
+        let mut new_dependencies = Dependencies::default();
         let new_resolved_value = self
             .resolve_expression_value_and_dependencies(&mut new_dependencies, &parsed_expression)
             .unwrap_or_else(|err| format!("ERROR: {err:?}").into());
@@ -234,22 +283,72 @@ impl State {
 
         // Remove old dependencies from the reverse index.
         if let Some(old_dependencies) = &old_dependencies {
-            for old_dependency in old_dependencies.difference(&new_dependencies) {
+            for old_dependency in old_dependencies
+                .singles
+                .difference(&new_dependencies.singles)
+            {
                 debug_log!(
-                    "resolve_cell_value_and_dependencies: remove from reverse index: {old_dependency} <- [{key}]"
+                    "resolve_cell_value_and_dependencies: remove single from reverse index: {old_dependency} <- [{key}]"
                 );
-                self.reverse_index
+                self.reverse_index_singles
+                    .entry(old_dependency.clone())
+                    .and_modify(|dependents| _ = dependents.remove(&key));
+            }
+            for old_dependency in old_dependencies.cols.difference(&new_dependencies.cols) {
+                debug_log!(
+                    "resolve_cell_value_and_dependencies: remove col from reverse index: {old_dependency} <- [{key}]"
+                );
+                self.reverse_index_cols
+                    .entry(old_dependency.clone())
+                    .and_modify(|dependents| _ = dependents.remove(&key));
+            }
+            for old_dependency in old_dependencies.rows.difference(&new_dependencies.rows) {
+                debug_log!(
+                    "resolve_cell_value_and_dependencies: remove row from reverse index: {old_dependency} <- [{key}]"
+                );
+                self.reverse_index_rows
                     .entry(old_dependency.clone())
                     .and_modify(|dependents| _ = dependents.remove(&key));
             }
         }
 
         // Add new dependencies to the reverse index.
-        for new_dependency in new_dependencies.difference(&old_dependencies.unwrap_or_default()) {
+        // TODO: Wrap reverse indices functionality to struct and use generics.
+        let old_dependencies = old_dependencies.unwrap_or_default();
+        for new_dependency in new_dependencies
+            .singles
+            .difference(&old_dependencies.singles)
+        {
             debug_log!(
-                "resolve_cell_value_and_dependencies: add to reverse index: {new_dependency} <- [{key}]"
+                "resolve_cell_value_and_dependencies: add single to reverse index: {new_dependency} <- [{key}]"
             );
-            self.reverse_index
+            self.reverse_index_singles
+                .entry(new_dependency.clone())
+                .and_modify(|dependents| _ = dependents.insert(key))
+                .or_insert_with(|| {
+                    let mut dependents = HashSet::new();
+                    dependents.insert(key);
+                    dependents
+                });
+        }
+        for new_dependency in new_dependencies.cols.difference(&old_dependencies.cols) {
+            debug_log!(
+                "resolve_cell_value_and_dependencies: add col to reverse index: {new_dependency} <- [{key}]"
+            );
+            self.reverse_index_cols
+                .entry(new_dependency.clone())
+                .and_modify(|dependents| _ = dependents.insert(key))
+                .or_insert_with(|| {
+                    let mut dependents = HashSet::new();
+                    dependents.insert(key);
+                    dependents
+                });
+        }
+        for new_dependency in new_dependencies.rows.difference(&old_dependencies.rows) {
+            debug_log!(
+                "resolve_cell_value_and_dependencies: add row to reverse index: {new_dependency} <- [{key}]"
+            );
+            self.reverse_index_rows
                 .entry(new_dependency.clone())
                 .and_modify(|dependents| _ = dependents.insert(key))
                 .or_insert_with(|| {
@@ -269,12 +368,38 @@ impl State {
         }
 
         if let Some(dependents) = self
-            .reverse_index
+            .reverse_index_singles
             .get(&key)
             .map(|dependents| dependents.clone())
         {
             for dependent in dependents {
-                debug_log!("resolve_cell_value_and_dependencies: update dependent: {dependent}");
+                debug_log!(
+                    "resolve_cell_value_and_dependencies: update single dependent: {dependent}"
+                );
+                self.resolve_cell_value_and_dependencies(dependent, display.next())?;
+            }
+        }
+        if let Some(dependents) = self
+            .reverse_index_cols
+            .get(&key.0)
+            .map(|dependents| dependents.clone())
+        {
+            for dependent in dependents {
+                debug_log!(
+                    "resolve_cell_value_and_dependencies: update col dependent: {dependent}"
+                );
+                self.resolve_cell_value_and_dependencies(dependent, display.next())?;
+            }
+        }
+        if let Some(dependents) = self
+            .reverse_index_rows
+            .get(&key.1)
+            .map(|dependents| dependents.clone())
+        {
+            for dependent in dependents {
+                debug_log!(
+                    "resolve_cell_value_and_dependencies: update row dependent: {dependent}"
+                );
                 self.resolve_cell_value_and_dependencies(dependent, display.next())?;
             }
         }
@@ -284,7 +409,7 @@ impl State {
 
     pub fn resolve_expression_value_and_dependencies(
         self: &mut Self,
-        dependencies: &mut HashSet<CellPointer>,
+        dependencies: &mut Dependencies,
         expression: &Expression,
     ) -> Result<JsValue, JsValue> {
         match expression {
@@ -299,7 +424,7 @@ impl State {
             }
             Expression::Reference(reference) => match reference {
                 Reference::Single(key) => {
-                    dependencies.insert(key.clone());
+                    dependencies.singles.insert(key.clone());
                     self.resolve_single_reference_value_and_dependencies(&key)
                 }
                 Reference::BoundedRange(range_start, range_end) => {
@@ -311,14 +436,51 @@ impl State {
                     for col in min_col..=max_col {
                         for row in min_row..=max_row {
                             let key = CellPointer(col, row);
+                            dependencies.singles.insert(key.clone());
                             ref_values
                                 .push(&self.resolve_single_reference_value_and_dependencies(&key)?);
                         }
                     }
                     Ok(JsValue::from(ref_values))
                 }
-                Reference::UnboundedColRange(_, _) => todo!("unbounded col range"),
-                Reference::UnboundedRowRange(_, _) => todo!("unbounded row range"),
+                Reference::UnboundedColRange(range_start, col) => {
+                    let min_col = range_start.0;
+                    let max_col = col.clone();
+                    let ref_values = Array::new();
+                    for col in min_col..=max_col {
+                        dependencies.cols.insert(col);
+                        let keys = self
+                            .cells
+                            .keys()
+                            .filter(|key| key.0 == col)
+                            .map(|key| key.clone())
+                            .collect::<Vec<CellPointer>>();
+                        for key in keys {
+                            ref_values
+                                .push(&self.resolve_single_reference_value_and_dependencies(&key)?);
+                        }
+                    }
+                    Ok(JsValue::from(ref_values))
+                }
+                Reference::UnboundedRowRange(range_start, row) => {
+                    let min_row = range_start.1;
+                    let max_row = row.clone();
+                    let ref_values = Array::new();
+                    for col in min_row..=max_row {
+                        dependencies.rows.insert(col);
+                        let keys = self
+                            .cells
+                            .keys()
+                            .filter(|key| key.1 == col)
+                            .map(|key| key.clone())
+                            .collect::<Vec<CellPointer>>();
+                        for key in keys {
+                            ref_values
+                                .push(&self.resolve_single_reference_value_and_dependencies(&key)?);
+                        }
+                    }
+                    Ok(JsValue::from(ref_values))
+                }
             },
             Expression::Value(val) => Ok(JsValue::from_str(&val)),
         }
@@ -337,7 +499,7 @@ impl State {
                     Some(value) => Ok(value),
                     None => {
                         // Here we are not resolved yet. Lazily init.
-                        let mut target_dependencies = HashSet::new();
+                        let mut target_dependencies = Dependencies::default();
                         let target_resolved_value = self
                             .resolve_expression_value_and_dependencies(
                                 &mut target_dependencies,

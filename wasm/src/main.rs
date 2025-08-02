@@ -1,8 +1,7 @@
 use sheeet_wasm::expression::Expression;
 use sheeet_wasm::reference::{CellPointer, usize_to_column_name};
-use sheeet_wasm::state::{SerializableState, State, js_value_to_string, log};
+use sheeet_wasm::state::{Dependencies, SerializableState, State, js_value_to_string, log};
 use std::cell::RefCell;
-use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use web_sys::console::log_2;
 use web_sys::window;
@@ -11,7 +10,7 @@ use web_sys::window;
 pub fn run_evaluate(input: &str) -> JsValue {
     STATE.with_borrow_mut(|state| {
         let expression = Expression::parse(input).unwrap();
-        let mut dependencies = HashSet::new();
+        let mut dependencies = Dependencies::default();
         match state.resolve_expression_value_and_dependencies(&mut dependencies, &expression) {
             Ok(val) => {
                 log_2(&"evaluate ok:".into(), &val);

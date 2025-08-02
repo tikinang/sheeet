@@ -20,10 +20,11 @@ Live at: https://sheeet.matejpavlicek.cz
   - [x] copy, cut, paste cell
   - [x] select and manipulate multiple cells
   - [x] deselect cell out when clicking in the editor
+  - [ ] add and remove columns and rows
 - [ ] support for range references
 - [ ] create public lib crate with basic functions in prelude
   - `add`, `sub`, `mul`, `div`, `pow`, `mod` (match the operators below)
-  - `avg`, `sum`, `med`
+  - `avg`, `sum`, `med`, `concat`
   - `http_get` (enabled by a feature, keep the first compile nice and fast)
 - [ ] add operators support (`+`,`-`,`*`,`/`,`^`,`%`) in expression parsing
 - [ ] enhance workspace isolation
@@ -33,9 +34,7 @@ Live at: https://sheeet.matejpavlicek.cz
   - set secret API key
   - workspace status bar (ID, API key set, status - compiling, computing, idling)
 - [ ] prepare Zerops Recipe for simple deployment
-- fixes
-  - [ ] self reference
-  - [x] tab in code editor
+- [ ] better onboarding (default data and code with comments)
 
 ### Nice to Have 
 - [ ] use `async` instead of spawning threads in `PUT /compile`
@@ -46,6 +45,11 @@ Live at: https://sheeet.matejpavlicek.cz
 - [ ] allow more robust crate structure
 - [ ] share-able workspaces
 - [ ] add note to `README.md` where which data lives
+- [ ] extender on range end
+
+### Fixes
+- [ ] self reference
+- [ ] update unbounded range dependents
 
 ## Security / Isolation Brainstorm
 I believe there are two main problems:

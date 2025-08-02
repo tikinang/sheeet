@@ -1,4 +1,4 @@
-use crate::reference::Reference;
+use crate::reference::{COLON, Reference, usize_to_column_name};
 
 #[macro_export]
 macro_rules! test_log {
@@ -100,12 +100,12 @@ impl Expression {
         }
     }
 
-    pub fn deep_copy(&self, distance: (isize, isize)) -> Self {
+    pub fn copy_with_distance(&self, distance: (isize, isize)) -> Self {
         match self {
             Expression::Function { inputs, name } => {
                 let mut new_inputs = Vec::with_capacity(inputs.len());
                 for input in inputs.clone() {
-                    new_inputs.push(input.deep_copy(distance))
+                    new_inputs.push(input.copy_with_distance(distance))
                 }
                 Expression::Function {
                     inputs: new_inputs,
@@ -116,14 +116,20 @@ impl Expression {
                 Reference::Single(cell_pointer) => {
                     Expression::Reference(Reference::Single(cell_pointer.add(distance)))
                 }
-                Reference::BoundedRange(_, _) => {
-                    todo!("range reference")
+                Reference::BoundedRange(range_start, range_end) => Expression::Reference(
+                    Reference::BoundedRange(range_start.add(distance), range_end.add(distance)),
+                ),
+                Reference::UnboundedColRange(range_start, col) => {
+                    Expression::Reference(Reference::UnboundedColRange(
+                        range_start.add(distance),
+                        col.checked_add_signed(distance.0).unwrap(),
+                    ))
                 }
-                Reference::UnboundedColRange(_, _) => {
-                    todo!("range reference")
-                }
-                Reference::UnboundedRowRange(_, _) => {
-                    todo!("range reference")
+                Reference::UnboundedRowRange(range_start, row) => {
+                    Expression::Reference(Reference::UnboundedRowRange(
+                        range_start.add(distance),
+                        row.checked_add_signed(distance.1).unwrap(),
+                    ))
                 }
             },
             Expression::Value(value) => {
@@ -137,6 +143,7 @@ impl Expression {
         }
     }
 
+    // TODO: Change to fmt (Display trait).
     pub fn to_string(&self, str: Option<String>) -> String {
         let mut str = str.unwrap_or_else(|| String::new());
         match self {
@@ -154,18 +161,28 @@ impl Expression {
                 str
             }
             Expression::Reference(reference) => match reference {
-                Reference::Single(cell_pointer) => {
-                    str.push_str(&cell_pointer.to_reference());
+                Reference::Single(key) => {
+                    str.push_str(&key.to_reference());
                     str
                 }
-                Reference::BoundedRange(_, _) => {
-                    todo!("range reference")
+                Reference::BoundedRange(range_start, range_end) => {
+                    str.push_str(&range_start.to_reference());
+                    str.push(COLON);
+                    str.push_str(&range_end.to_reference());
+                    str
                 }
-                Reference::UnboundedColRange(_, _) => {
-                    todo!("range reference")
+                Reference::UnboundedColRange(range_start, col) => {
+                    str.push_str(&range_start.to_reference());
+                    str.push(COLON);
+                    // TODO: Look around and maybe remove some clone().
+                    str.push_str(&usize_to_column_name(col.clone()));
+                    str
                 }
-                Reference::UnboundedRowRange(_, _) => {
-                    todo!("range reference")
+                Reference::UnboundedRowRange(range_start, row) => {
+                    str.push_str(&range_start.to_reference());
+                    str.push(COLON);
+                    str.push_str(&row.to_string());
+                    str
                 }
             },
             Expression::Value(value) => {

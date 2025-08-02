@@ -2,10 +2,12 @@ use serde::de::{Error, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Display, Formatter};
 
+// TODO: Fields not public, use constructor or getters.
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 pub struct CellPointer(pub usize, pub usize);
 
 impl CellPointer {
+    // TODO: Rename.
     pub fn from_str(s: &str) -> Self {
         let x: Vec<&str> = s.splitn(2, '-').collect();
         CellPointer(
@@ -16,10 +18,12 @@ impl CellPointer {
         )
     }
 
+    // TODO: Rename.
     pub fn to_string(&self) -> String {
         self.0.to_string() + "-" + &self.1.to_string()
     }
 
+    // TODO: Change to fmt (Display trait).
     pub fn to_reference(&self) -> String {
         let mut str = String::new();
         str.push_str(&usize_to_column_name(self.0));
@@ -105,7 +109,9 @@ pub enum Reference {
     UnboundedRowRange(CellPointer, usize),
 }
 
-const COLON: char = ':';
+pub const COLON: char = ':';
+
+// TODO: bool, number, text and null function variables
 
 impl Reference {
     pub fn parse(input: &str) -> Result<Self, String> {
