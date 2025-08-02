@@ -20,9 +20,8 @@ Live at: https://sheeet.matejpavlicek.cz
   - [x] copy, cut, paste cell
   - [x] select and manipulate multiple cells
   - [x] deselect cell out when clicking in the editor
-  - [ ] add and remove columns and rows
 - [x] support for range references
-- [ ] create public lib crate with basic functions in prelude
+- [x] create public lib crate with basic functions in prelude
   - `add`, `sub`, `mul`, `div`, `pow` (match the operators below)
   - `avg`, `sum`, `med`, `concat_with`
   - `http_get` (enabled by a feature, keep the first compile nice and fast)
@@ -36,7 +35,8 @@ Live at: https://sheeet.matejpavlicek.cz
 - [ ] prepare Zerops Recipe for simple deployment
 - [ ] better onboarding (default data and code with comments)
 
-### Nice to Have 
+### Nice to Have
+- [ ] add and remove columns and rows
 - [ ] use `async` instead of spawning threads in `PUT /compile`
 - [ ] browser stored environment secrets
 - [ ] pre-heat workspaces for demo newcomers

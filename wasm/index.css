@@ -103,7 +103,7 @@ td {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 12rem;
+    max-width: 16rem;
 }
 
 td.selected-top {
