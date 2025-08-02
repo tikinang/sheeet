@@ -32,7 +32,7 @@ Live at: https://sheeet.matejpavlicek.cz
 - [ ] workspace management
   - reset workspace (both ID and sheet data)
   - set secret API key
-  - workspace status bar (ID, API key set, status - compiling, computing, idling)
+  - workspace status bar (ID, API key set, compile status (compiling, ready, error), unsaved status (saved, unsaved))
 - [ ] prepare Zerops Recipe for simple deployment
 - [ ] better onboarding (default data and code with comments)
 

@@ -10,13 +10,17 @@
 <body>
 <div class="container">
     <div class="half-section">
-        <form id="my-form">
-            <label for="my-expression">Expression</label>
-            <input type="text" id="my-expression" placeholder="=sub(add(4, 7), 3)"/>
-            <input type="submit">
-        </form>
-        <h1 id="my-result"></h1>
-        <hr>
+        <div class="status-bar">
+            <form id="test-expression-form" class="status-item">
+                <label for="test-expression">test expression: </label>
+                <input type="text" id="test-expression" placeholder="=sub(add(4, 7), 3)"/>
+                <input type="submit" value="Compute">
+            </form>
+            <div class="status-item">
+                <span id="test-expression-result"></span>
+            </div>
+        </div>
+        <hr/>
         <div class="spreadsheet-container">
             <table id="spreadsheet">
                 <!-- table contents are generated -->
@@ -25,6 +29,30 @@
     </div>
 
     <div class="half-section">
+        <div class="status-bar">
+            <div class="status-item">
+                <span>Workspace ID:</span>
+                <span id="workspace-id"></span>
+            </div>
+            <div class="status-item">
+                <span>API Key:</span>
+                <span id="api-key">
+                    <button id="set-api-key">Set</button>
+                </span>
+            </div>
+            <div class="status-item">
+                <span class="indicator orange"></span>
+                <span id="compile-status"></span>
+            </div>
+            <div class="status-item">
+                <span class="indicator green"></span>
+                <span id="save-status">saved</span>
+            </div>
+            <div class="status-item">
+                <button id="reset-workspace">Reset Workspace</button>
+            </div>
+        </div>
+        <hr>
         <div>
             <input type="radio" name="tabs" id="tab-cargo-toml">
             <label for="tab-cargo-toml">Cargo.toml</label>
@@ -60,7 +88,7 @@
     }
 
     async function loadWasmBindgenModule(jsUrl, wasmUrl) {
-        const module = await import(jsUrl+`?version=${Number(new Date())}`);
+        const module = await import(jsUrl + `?version=${Number(new Date())}`);
         await module.default({module_or_path: wasmUrl});
         console.log(module)
         window.userWasmModule = module;
@@ -75,18 +103,24 @@
         logsContainer.scrollTop = logsContainer.scrollHeight;
     }
 
-    function setResult(message, loading = false) {
-        const el = document.getElementById('my-result');
-        el.textContent = message
-        el.className = loading ? "loading" : "";
+    function setCompileStatus(message, color, loading = false) {
+        const text = document.getElementById('compile-status');
+        text.textContent = message
+        if (loading) {
+            text.classList.add("loading")
+        } else {
+            text.classList.remove("loading")
+        }
+        text.previousElementSibling.className = `indicator ${color}`
     }
 
     window.compile = async function () {
-        setResult("Compiling", true);
+        setCompileStatus("compiling", "orange", true);
 
         let url = `${window.apiBaseUrl}/compile`
         let workspaceId = localStorage.getItem("workspace-id");
         if (workspaceId !== null) {
+            document.getElementById("workspace-id").textContent = workspaceId;
             url = url + `?workspace_id=${workspaceId}`
         }
 
@@ -104,8 +138,9 @@
         if (!response.ok) {
             if (response.status === 404) {
                 localStorage.removeItem("workspace-id");
+                document.getElementById("workspace-id").textContent = ""
             }
-            setResult(`HTTP error: ${response.status} (try pressing F5)`);
+            setCompileStatus(`HTTP: ${response.status} (try pressing F5)`, "red");
             return;
         }
 
@@ -145,7 +180,7 @@
                 } else if (parsed.log !== undefined) {
                     appendLog(logsContainer, parsed.log);
                 } else if (parsed.error !== undefined) {
-                    setResult(`Compile error: ${parsed.error}`);
+                    setCompileStatus(`${parsed.error}`, "red");
                     return;
                 } else if (parsed.download_info !== undefined) {
                     await loadWasmBindgenModule(
@@ -153,7 +188,8 @@
                         `${window.apiBaseUrl}${parsed.download_info.wasm_download_url}`,
                     );
                     localStorage.setItem("workspace-id", parsed.download_info.workspace_id);
-                    setResult("Successfully compiled, enter your expression above.");
+                    document.getElementById("workspace-id").textContent = parsed.download_info.workspace_id;
+                    setCompileStatus("compiled", "green");
                     window.wasmBindings.init_app();
                 } else {
                     console.error("unknown SSE message:", parsed)
@@ -200,11 +236,34 @@ pub fn sub(a: f64, b: f64) -> f64 {
 }
 `
     )
+    
+    document.getElementById("reset-workspace").addEventListener("click", event => {
+        if (confirm("Are you sure? All your sheet data and code will be irreversibly deleted.")) {
+            localStorage.removeItem("cargo-toml-content");
+            localStorage.removeItem("lib-rs-content");
+            localStorage.removeItem("sheet-data");
+            localStorage.removeItem("workspace-id");
+            localStorage.removeItem("secret-api-key");
+            window.location.assign("/");
+        }
+    })
 
     await window.compile();
 </script>
 
 <script type="module">
+    function unsave() {
+        const text = document.getElementById('save-status');
+        text.textContent = "unsaved"
+        text.previousElementSibling.className = `indicator red`
+    }
+
+    function save() {
+        const text = document.getElementById('save-status');
+        text.textContent = "saved"
+        text.previousElementSibling.className = `indicator green`
+    }
+
     let rangeStartCell = null;
     let rangeEndCell = null;
     let selectedRange = new Set();
@@ -301,12 +360,15 @@ pub fn sub(a: f64, b: f64) -> f64 {
     document.getElementById("lib-rs-content").addEventListener('focus', function () {
         clearRangeSelection();
     });
+    document.getElementById("test-expression").addEventListener('focus', function () {
+        clearRangeSelection();
+    });
 
     document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
         event.preventDefault();
         event.target.textContent = window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim());
+        unsave();
     });
-
 
     document.getElementById("spreadsheet").addEventListener('mousedown', function (event) {
         if (event.target.tagName === 'TD') {
@@ -354,6 +416,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
                 case 's':
                     event.preventDefault();
                     window.wasmBindings.save_app_state_to_local_storage()
+                    save();
                     break;
                 case 'c':
                     if (!rangeStartCell) {
@@ -389,10 +452,12 @@ pub fn sub(a: f64, b: f64) -> f64 {
                         const targetCellId = `${col + colDistance}-${row + rowDistance}`
                         const newRawValue = window.wasmBindings.copy_cell_get_raw_value(copiedCellId, targetCellId);
                         document.getElementById(targetCellId).textContent = window.wasmBindings.set_cell_raw_value(targetCellId, newRawValue);
+                        unsave();
 
                         if (cut) {
                             const cutCell = document.getElementById(copiedCellId);
                             cutCell.textContent = window.wasmBindings.set_cell_raw_value(cutCell.id, '');
+                            unsave();
                             cut = false;
                         }
                     })
@@ -435,6 +500,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     const targetCellId = `${col}-${row}`;
                     const toDeleteCell = document.getElementById(targetCellId);
                     toDeleteCell.textContent = window.wasmBindings.set_cell_raw_value(toDeleteCell.id, '');
+                    unsave();
                 })
                 break;
             case 'ArrowUp':
@@ -503,10 +569,11 @@ pub fn sub(a: f64, b: f64) -> f64 {
             resolve();
         });
     });
-    document.getElementById('my-form').addEventListener('submit', async (event) => {
+    document.getElementById('test-expression-form').addEventListener('submit', async (event) => {
         event.preventDefault();
-        const input = document.getElementById('my-expression').value;
-        window.setResult(await window.wasmBindings.run_evaluate(input));
+        const input = document.getElementById('test-expression').value;
+        const output = await window.wasmBindings.run_evaluate(input); 
+        document.getElementById("test-expression-result").textContent = `= ${output}`  
     });
 </script>
 
