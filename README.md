@@ -23,8 +23,8 @@ Live at: https://sheeet.matejpavlicek.cz
   - [ ] add and remove columns and rows
 - [x] support for range references
 - [ ] create public lib crate with basic functions in prelude
-  - `add`, `sub`, `mul`, `div`, `pow`, `mod` (match the operators below)
-  - `avg`, `sum`, `med`, `concat`
+  - `add`, `sub`, `mul`, `div`, `pow` (match the operators below)
+  - `avg`, `sum`, `med`, `concat_with`
   - `http_get` (enabled by a feature, keep the first compile nice and fast)
 - [ ] add operators support (`+`,`-`,`*`,`/`,`^`,`%`) in expression parsing
 - [x] enhance workspace isolation

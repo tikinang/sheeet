@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["api", "wasm"]
+members = ["api", "wasm", "funcs"]
 
 # TODO: Not used.
 [profile.release-wasm]

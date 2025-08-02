@@ -1327,6 +1327,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sheeet-funcs"
+version = "0.1.0"
+dependencies = [
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "sheeet-wasm"
 version = "0.1.0"
 dependencies = [
