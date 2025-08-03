@@ -4,8 +4,6 @@ Rust and WebAssembly powered spreadsheet. **Sheeet!** is just a classic, in-brow
 
 ![Sheeet logo.](/assets/sheeet-baner.png)
 
----
-
 ## Public Demo
 
 > [!WARNING]
@@ -22,22 +20,24 @@ The project is still v0. Be cautious using it in production - **you may lose you
 [Security/Isolation Brainstorm](assets/security-isolation-brainstorm.md)
 
 ## The Future
-The current code editing in the browser is close to unusable. It would be great to sync the user's local code in the user's favorite code editor with the Sheeet app, either via git or some form of ssh (scp).
+The current code editing in the browser is close to unusable. It would be great to sync the user's local code in the user's favorite code editor with the Sheeet! app, either via git or some form of ssh (scp).
 
-Adding SQL interface and some database-like functionalities will also be great.
+Adding SQL interface and some database-like functionalities would also be great.
 
 ### WASM's (In)Efficiency
-The initial idea of this project was: "Let's build a spreadsheet powered by Rust. It shall be fast, efficient (because Rust) and easy to use by Rust users." - Well, this idea dissolved rather quickly.
+The initial idea of this project was: _"Let's build a spreadsheet powered by Rust. It shall be fast and efficient (because Rust) and easy to use by Rust users."_ - Well, this idea dissolved rather quickly.
 The current implementation relies heavily on the JS and WASM (wasm-bindgen) interface and the interpretability of JS to resolve user-defined functions. Majority of memory allocations is done in the JS runtime.
 The communication between Rust WASM and JS is definitely not for free. One could make the argument that this hybrid is slower than vanilla JS.
 
 > TODO: Benchmarks?
 
-WASM Rust platform has many limitations, many features (e.g. `thread::sleep()`,) - that typical Rustacean is used to - are not available in `wasm32-unknown-unknown` target.
+WASM Rust platform has many limitations, many features (e.g. `thread::sleep()`, common HTTP client libs, ...) - that typical Rustacean is used to - are not available in `wasm32-unknown-unknown` target.
 
 ### The Potential
 Having said that, there are plans for WASM to eventually be able to manage the DOM directly without the need to jump to JS.
-And with some (a lot of) UI tweaks and enterprise-grade support for storing data, I believe this tool could make sense. The goal is still the same: Create browser enabled, fast and efficient, highly customizable spreadsheet for Rust power users.
+And with some (a lot of) UI tweaks and enterprise-grade support for storing data, I believe this tool could make sense. The goal is still the same:
+
+> Create browser enabled, fast and efficient, highly customizable spreadsheet for Rust power users.
 
 This tool may eventually be useful for data analysts in their day job. Spreadsheet + SQL interface + Rust. What's not to like? :)
 
@@ -127,3 +127,41 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
 - [ ] self reference should error
 - [x] update unbounded range dependents
 - [ ] error handling and displaying (`=add(A1,,)` panics)
+
+## Development
+
+Prerequisites:
+- Rust and Cargo installed (https://doc.rust-lang.org/cargo/getting-started/installation.html)
+- Trunk (WASM and JS packer) installed (`cargo install --locked trunk`)
+
+Running locally:
+
+- start the API, API will listen on port `:8080` by default
+```shell
+mkdir $HOME/workspaces
+RUST_LOG=debug cargo run --package sheeet-api
+
+# changing the workspaces artifacts path, default is $HOME/workspaces
+export SHEEET_WORKSPACES_PATH=/some/other/path 
+RUST_LOG=debug cargo run --package sheeet-api
+``` 
+- serve the GUI, GUI will be served on port `:7878`
+```shell
+cd ./wasm
+trunk serve
+
+# with console debug logging enabled
+trunk serve --features debug-log
+```
+- visit http://localhost:7878
+- `trunk serve` will auto-reload on changes in the `./wasm/...` code
+
+Adding base functions to the [sheeet_funcs::prelude](https://crates.io/crates/sheeet-funcs):
+- change `sheeet-funcs` dependency to local path in the user defined `Cargo.toml` (in the Sheeet! app) and hit CTRL-Enter
+```toml
+[dependencies]
+sheeet-funcs = { path="/path/to/the/cloned/sheeet/repo/funcs", features=["fetch"] }
+```
+- test the functionality in the app
+- write tests
+- and maybe publish your own crate to use it via `cargo publish`, or wait for maintainers to publish a new version
