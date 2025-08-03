@@ -18,47 +18,47 @@ pub mod prelude {
 mod fetch;
 
 #[wasm_bindgen]
-pub fn add(a: f64, b: f64) -> f64 {
+pub fn add(a: f32, b: f32) -> f32 {
     a + b
 }
 
 #[wasm_bindgen]
-pub fn sub(a: f64, b: f64) -> f64 {
+pub fn sub(a: f32, b: f32) -> f32 {
     a - b
 }
 
 #[wasm_bindgen]
-pub fn div(a: f64, b: f64) -> f64 {
+pub fn div(a: f32, b: f32) -> f32 {
     a / b
 }
 
 #[wasm_bindgen]
-pub fn mul(a: f64, b: f64) -> f64 {
+pub fn mul(a: f32, b: f32) -> f32 {
     a * b
 }
 
 #[wasm_bindgen]
-pub fn pow(a: f64, n: f64) -> f64 {
+pub fn pow(a: f32, n: f32) -> f32 {
     a.powf(n)
 }
 
 #[wasm_bindgen]
-pub fn sum(vec: Vec<f64>) -> f64 {
+pub fn sum(vec: Vec<f32>) -> f32 {
     vec.into_iter().sum()
 }
 
 #[wasm_bindgen]
-pub fn avg(vec: Vec<f64>) -> f64 {
+pub fn avg(vec: Vec<f32>) -> f32 {
     if vec.len() == 0 {
         return 0.0;
     }
-    let len = vec.len() as f64;
-    vec.into_iter().sum::<f64>() / len
+    let len = vec.len() as f32;
+    vec.into_iter().sum::<f32>() / len
 }
 
 /// Discrete implementation of median.
 #[wasm_bindgen]
-pub fn med(vec: Vec<f64>) -> f64 {
+pub fn med(vec: Vec<f32>) -> f32 {
     if vec.len() == 0 {
         return 0.0;
     }

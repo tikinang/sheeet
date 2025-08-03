@@ -62,10 +62,137 @@
         <code contenteditable="true" id="cargo-toml-content" class="tab-content"></code>
         <code contenteditable="true" id="lib-rs-content" class="tab-content"></code>
         <hr>
-        <p>hit CTRL+Enter to re-compile</p>
+        <p>hit CTRL+Enter to re-compile and save the code</p>
         <code id="logs"></code>
     </div>
 </div>
+
+<script type="module">
+    // Handle demo onboarding.
+    
+    function applyOnboarding() {
+        localStorage.removeItem("workspace-id");
+        localStorage.removeItem("secret-api-key");
+        localStorage.setItem(
+            "cargo-toml-content",
+            `
+[package]
+name = "sheeet-lib"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# 'wasm-bindgen' dependency is necessary.
+wasm-bindgen = "0.2.100"
+
+# Crate with basic spreadsheet functions.
+# 'fetch' feature enabled to showcase the async functionality.
+sheeet-funcs = { version="0.1.4", features=["fetch"] }
+
+# These are optional.
+wasm-bindgen-futures = "0.4.50"
+web-sys = "0.3.77"
+`.trimStart()
+        )
+        localStorage.setItem(
+            "lib-rs-content",
+            `
+// You can change the 'Cargo.toml' contents by switching the tab above.
+// Feel free to 'Reset Workspace' or visit this site without the '?demo=true' query param to start with a clean sheet. 
+
+#[allow(unused)]
+use sheeet_funcs::prelude::*; // Allows for basic functionality and support for +, -, /, *, etc. operators. 
+use wasm_bindgen::prelude::*; // Needed for bridging the below code with the spreadsheet data transformations.
+
+// These are optional and present because of the 'async_concat_with' function.
+use wasm_bindgen_futures::JsFuture;
+use web_sys::js_sys::Promise;
+
+// Custom sync function.
+// Necessary to annotate with the #[wasm_bindgen] macro.
+#[wasm_bindgen]
+pub fn round(a: f32) -> f32 {
+    a.round()
+}
+
+// Custom async function, that can await the async values (Promises).
+#[wasm_bindgen]
+pub async fn async_concat_with(vec: Vec<Promise>, sep: &str) -> String {
+    let mut str = String::new();
+    let len = vec.len();
+    for (i, promise) in vec.into_iter().enumerate() {
+        str.push_str(
+            &JsFuture::from(promise)
+                .await
+                .unwrap()
+                .as_string()
+                .unwrap(),
+        );
+        if i <= len - 1 {
+            str.push_str(sep);
+        }
+    }
+    str
+}
+
+// Here goes your next function, don't hold back :)
+
+`.trimStart()
+        )
+        localStorage.setItem("sheet-data", JSON.stringify({
+            "sheet_bounds": [27, 65],
+            "data": {
+                "1-11": "6.8",
+                "1-15": "9.1",
+                "3-10": "=sum(B11:B)",
+                "2-4": "title",
+                "1-16": "8",
+                "2-14": "=round(a14)",
+                "1-5": "https://jsonplaceholder.typicode.com/users/6",
+                "4-2": "=async_concat_with(C3:C5, \" | \")",
+                "2-16": "=round(a16)",
+                "3-7": "# and watch the changes in D2",
+                "2-12": "=round(a12)",
+                "4-1": "# concat the async fetched results",
+                "2-10": "rounded",
+                "1-1": "# fetch some data over HTTP",
+                "1-3": "https://jsonplaceholder.typicode.com/users/4",
+                "2-15": "=round(a15)",
+                "3-3": "=fetch_get_json_path(A3, B3)",
+                "2-3": "address.street",
+                "2-9": "# from the sheeet_funcs prelude",
+                "3-2": "fetched data",
+                "1-13": "5.7",
+                "2-5": "address.street",
+                "2-2": "extract path",
+                "1-2": "address",
+                "3-9": "# sum of rounded below",
+                "1-9": "# using the base functions (sum)",
+                "1-12": "1.2",
+                "3-6": "# try to copy the C3 cell to C4, C5",
+                "1-10": "number",
+                "1-4": "https://jsonplaceholder.typicode.com/posts/1",
+                "2-11": "=round(a11)",
+                "2-13": "=round(a13)",
+                "1-14": "6"
+            }
+        }))
+    }
+    
+    const queryParams = new URLSearchParams(window.location.search);
+    if (queryParams.get('demo')) {
+        if (localStorage.getItem("workspace-id")) {
+            if (confirm("Do you want to apply demo onboarding data? Your sheet data and code will be irreversibly deleted.")) {
+                applyOnboarding();
+            }
+        } else {
+            applyOnboarding();
+        }
+        window.location.assign("/");
+    }
+</script>
 
 <script type="module">
     function getApiBaseUrl() {
@@ -232,35 +359,34 @@
 
     loadCodeOrSetDefault(
         "cargo-toml-content",
-        `[package]
+        `
+[package]
 name = "sheeet-lib"
 edition = "2024"
 
-[dependencies]
-wasm-bindgen = "0.2.100"
-
 [lib]
 crate-type = ["cdylib", "rlib"]
-`
+
+[dependencies]
+wasm-bindgen = "0.2.100"
+sheeet-funcs = { version="0.1.4", features=[] }
+`.trimStart()
     )
     loadCodeOrSetDefault(
         "lib-rs-content",
-        `use wasm_bindgen::prelude::*;
+        `
+#[allow(unused)]
+use sheeet_funcs::prelude::*; 
+use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub fn add(a: f64, b: f64) -> f64 {
-    a + b
-}
+// #[wasm_bindgen]
+// ...
 
-#[wasm_bindgen]
-pub fn sub(a: f64, b: f64) -> f64 {
-    a - b
-}
-`
+`.trimStart()
     )
 
     document.getElementById("reset-workspace").addEventListener("click", _ => {
-        if (confirm("Are you sure? All your sheet data and code will be irreversibly deleted.")) {
+        if (confirm("Are you sure? Your sheet data and code will be irreversibly deleted.")) {
             localStorage.removeItem("cargo-toml-content");
             localStorage.removeItem("lib-rs-content");
             localStorage.removeItem("sheet-data");
@@ -307,7 +433,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
 <script type="module">
     function unsave() {
         const text = document.getElementById('save-status');
-        text.textContent = "unsaved"
+        text.textContent = "unsaved (hit CTRL+S)"
         text.previousElementSibling.className = `indicator red`
     }
 
@@ -524,7 +650,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
         switch (event.key) {
             case 'Enter':
                 if (!rangeStartCell) {
-                    break;
+                    return;
                 }
                 event.preventDefault();
                 if (rangeStartCell.hasAttribute("contenteditable")) {
@@ -534,10 +660,10 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     rangeStartCell.setAttribute("contenteditable", "true");
                     rangeStartCell.focus();
                 }
-                break;
+                return;
             case 'Escape':
                 if (!rangeStartCell) {
-                    break;
+                    return;
                 }
                 event.preventDefault();
                 if (rangeStartCell.hasAttribute("contenteditable")) {
@@ -545,10 +671,10 @@ pub fn sub(a: f64, b: f64) -> f64 {
                 } else {
                     clearRangeSelection();
                 }
-                break;
+                return;
             case 'Delete':
                 if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
-                    break;
+                    return;
                 }
                 event.preventDefault();
                 forEachCell(rangeStartCell, rangeEndCell, async (col, row, _) => {
@@ -557,35 +683,35 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     toDeleteCell.textContent = await window.resolveValue(() => window.wasmBindings.set_cell_raw_value(toDeleteCell.id, ''));
                     unsave();
                 })
-                break;
+                return;
             case 'ArrowUp':
                 if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
-                    break;
+                    return;
                 }
                 event.preventDefault();
                 selectCell(document.getElementById(addId(rangeEndCell.id, true, -1)), event.shiftKey)
-                break;
+                return;
             case 'ArrowDown':
                 if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
-                    break;
+                    return;
                 }
                 event.preventDefault();
                 selectCell(document.getElementById(addId(rangeEndCell.id, true, 1)), event.shiftKey)
-                break;
+                return;
             case 'ArrowLeft':
                 if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
-                    break;
+                    return;
                 }
                 event.preventDefault();
                 selectCell(document.getElementById(addId(rangeEndCell.id, false, -1)), event.shiftKey)
-                break;
+                return;
             case 'ArrowRight':
                 if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
-                    break;
+                    return;
                 }
                 event.preventDefault();
                 selectCell(document.getElementById(addId(rangeEndCell.id, false, 1)), event.shiftKey)
-                break;
+                return;
             case 'Tab':
                 if (document.activeElement === document.getElementById("lib-rs-content")) {
                     event.preventDefault();
@@ -596,10 +722,10 @@ pub fn sub(a: f64, b: f64) -> f64 {
 
                     range.setStartAfter(tabNode);
                     range.setEndAfter(tabNode);
-                    break;
+                    return;
                 }
                 if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
-                    break;
+                    return;
                 }
                 event.preventDefault();
                 let val = 1
@@ -607,8 +733,16 @@ pub fn sub(a: f64, b: f64) -> f64 {
                     val = -1
                 }
                 selectCell(document.getElementById(addId(rangeEndCell.id, false, val)), event.shiftKey)
-                break;
+                return;
         }
+
+        // Start editing the cell on keydown.
+        if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
+            return;
+        }
+        rangeStartCell.textContent = window.wasmBindings.get_cell_raw_value(rangeStartCell.id)
+        rangeStartCell.setAttribute("contenteditable", "true");
+        rangeStartCell.focus();
     });
 
     function saveCode(element) {

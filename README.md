@@ -9,7 +9,7 @@ Rust and WebAssembly powered spreadsheet. **Sheeet!** is just a classic, in-brow
 > [!WARNING]
 > Don't share any sensitive information in the code to be compiled.
 
-Live at: https://sheeet.matejpavlicek.cz
+Live at: [https://sheeet.matejpavlicek.cz](https://sheeet.matejpavlicek.cz?demo=true)
 
 Sheet data lives in your browser, it is not sent to the public demo backend.
 
@@ -91,7 +91,7 @@ services:
 Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
 
 ### Necessary
-- [ ] implement spreadsheet functionality
+- [x] implement spreadsheet functionality
   - copy, cut, paste cell
   - select and manipulate multiple cells
   - deselect cell out when clicking in the editor
@@ -100,7 +100,6 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
   - `add`, `sub`, `mul`, `div`, `pow` (match the operators below)
   - `avg`, `sum`, `med`, `concat_with`
   - `http_get` (enabled by a feature, keep the first compile nice and fast)
-- [ ] add operators support (`+`,`-`,`*`,`/`,`^`,`%`) in expression parsing
 - [x] enhance workspace isolation
   - allow making API access private (`SHEEET_SECRET_API_KEY`)
 - [x] workspace management
@@ -108,10 +107,11 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
   - set secret API key
   - workspace status bar (ID, API key, compile status, save status)
 - [x] prepare Zerops Recipe for simple deployment
-- [ ] better onboarding (default data and code with comments)
-- [ ] extensive UI and error testing
+- [x] better onboarding (default data and code with comments)
+- [ ] extensive UI and error handling testing
 
 ### Nice to Have
+- [ ] add operators support (`+`,`-`,`*`,`/`,`^`,`%`) in expression parsing
 - [ ] add and remove columns and rows
 - [ ] use `async` instead of spawning threads in `PUT /compile`
 - [ ] browser stored environment secrets
@@ -122,11 +122,13 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
 - [ ] shareable workspaces (both data and code)
 - [ ] add note to `README.md` where which data lives
 - [ ] extender on range end
+- [ ] support Vim motions
+- [ ] How does it work? section in `README.md`
 
 ### Known Errors
 - [ ] self reference should error
 - [x] update unbounded range dependents
-- [ ] error handling and displaying (`=add(A1,,)` panics)
+- [ ] `=add(A1,,)` panics
 
 ## Development
 
