@@ -1,8 +1,8 @@
-# SHEEET
+# Sheeet!
 
-Rust and WebAssembly powered spreadsheet.
+Rust and WebAssembly powered spreadsheet. **Sheeet!** is just a classic, in-browser spreadsheet, but with a twist: Users can define their own functions - in Rust - and use them to create and transform data in any way imaginable. Both _sync_ (sum range of numbers) and _async_ (fetch data over HTTP) functions are supported. 
 
-![Sheeet logo.](/sheeet-baner.png)
+![Sheeet logo.](/assets/sheeet-baner.png)
 
 ---
 
@@ -13,13 +13,88 @@ Rust and WebAssembly powered spreadsheet.
 
 Live at: https://sheeet.matejpavlicek.cz
 
-## TODO
+Sheet data lives in your browser, it is not sent to the public demo backend.
+
+## Disclaimer
+This is my first project written in Rust, and it currently primarily serves as a learning opportunity.
+The project is still v0. Be cautious using it in production - **you may lose your data**.
+
+[Security/Isolation Brainstorm](assets/security-isolation-brainstorm.md)
+
+## The Future
+The current code editing in the browser is close to unusable. It would be great to sync the user's local code in the user's favorite code editor with the Sheeet app, either via git or some form of ssh (scp).
+
+Adding SQL interface and some database-like functionalities will also be great.
+
+### WASM's (In)Efficiency
+The initial idea of this project was: "Let's build a spreadsheet powered by Rust. It shall be fast, efficient (because Rust) and easy to use by Rust users." - Well, this idea dissolved rather quickly.
+The current implementation relies heavily on the JS and WASM (wasm-bindgen) interface and the interpretability of JS to resolve user-defined functions. Majority of memory allocations is done in the JS runtime.
+The communication between Rust WASM and JS is definitely not for free. One could make the argument that this hybrid is slower than vanilla JS.
+
+> TODO: Benchmarks?
+
+WASM Rust platform has many limitations, many features (e.g. `thread::sleep()`,) - that typical Rustacean is used to - are not available in `wasm32-unknown-unknown` target.
+
+### The Potential
+Having said that, there are plans for WASM to eventually be able to manage the DOM directly without the need to jump to JS.
+And with some (a lot of) UI tweaks and enterprise-grade support for storing data, I believe this tool could make sense. The goal is still the same: Create browser enabled, fast and efficient, highly customizable spreadsheet for Rust power users.
+
+This tool may eventually be useful for data analysts in their day job. Spreadsheet + SQL interface + Rust. What's not to like? :)
+
+## How to Deploy?
+
+This quick tutorial will deploy your own **private** instance of Sheeet!, that is secured against public usage via `SHEEET_SECRET_API_KEY`.
+If you wish to deploy public instance, just remove the `SHEEET_SECRET_API_KEY` secret environment variable from the import yaml file.
+
+1. Sign Up to [Zerops.io](https://app.zerops.io) (as of 2025 you'll receive free credits upon Sign Up)
+2. In the GUI navigate to "Dashboard > Import a project"
+
+<img src="assets/import-project-zerops-gui.png" alt="import-project-zerops-gui" width="768"/>
+
+And paste there the following contents of `zerops-import.yml`:
+```yaml
+#yamlPreprocessor=on
+project: 
+  name: recipe-sheeet
+  tags:
+    - zerops-recipe
+services:
+  - hostname: api
+    type: rust@stable
+    priority: 10
+    envSecrets:
+      SHEEET_SECRET_API_KEY: <@generateRandomString(<32>)>
+    maxContainers: 1
+    verticalAutoscaling:
+      minRam: 0.25
+    buildFromGit: https://github.com/tikinang/sheeet@main
+    enableSubdomainAccess: true
+  - hostname: app
+    type: static@latest
+    buildFromGit: https://github.com/tikinang/sheeet@main
+    enableSubdomainAccess: true
+```
+
+3. Wait for deployment process to finish
+4. Go to "Dashboard > `recipe-sheeet` > `api` > Environment Variables > Secret Variables" and copy the `SHEEET_SECRET_API_KEY` value
+
+<img src="assets/copy-secret-zerops-gui.png" alt="copy-secret-zerops-gui" width="768"/>
+
+5. Visit deployed site via "Subdomain Access" and set your API Key
+
+<img src="assets/set-api-key-sheeet-gui.png" alt="set-api-key-sheeet-gui" width="768"/>
+
+6. Enjoy!
+
+## TODOs and Contributing
+
+Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
 
 ### Necessary
-- implement spreadsheet functionality
-  - [x] copy, cut, paste cell
-  - [x] select and manipulate multiple cells
-  - [x] deselect cell out when clicking in the editor
+- [ ] implement spreadsheet functionality
+  - copy, cut, paste cell
+  - select and manipulate multiple cells
+  - deselect cell out when clicking in the editor
 - [x] support for range references
 - [x] create public lib crate with basic functions in prelude
   - `add`, `sub`, `mul`, `div`, `pow` (match the operators below)
@@ -32,7 +107,7 @@ Live at: https://sheeet.matejpavlicek.cz
   - reset workspace (both ID and sheet data)
   - set secret API key
   - workspace status bar (ID, API key, compile status, save status)
-- [ ] prepare Zerops Recipe for simple deployment
+- [x] prepare Zerops Recipe for simple deployment
 - [ ] better onboarding (default data and code with comments)
 - [ ] extensive UI and error testing
 
@@ -44,40 +119,11 @@ Live at: https://sheeet.matejpavlicek.cz
 - [ ] on-save formatting support
 - [ ] code highlighting ([`highlight.js`](https://highlightjs.org))
 - [ ] allow more robust crate structure
-- [ ] share-able workspaces
+- [ ] shareable workspaces (both data and code)
 - [ ] add note to `README.md` where which data lives
 - [ ] extender on range end
 
-### Fixes
-- [ ] self reference
+### Known Errors
+- [ ] self reference should error
 - [x] update unbounded range dependents
 - [ ] error handling and displaying (`=add(A1,,)` panics)
-
-## Security / Isolation Brainstorm
-I believe there are two main problems:
-1. workspaces isolation (attacker shouldn't be able to compromise the backend or other users' data)
-2. backend resource draining (e.g. Bitcoin mining in a macro expansion, spambots, ...)
-
-### Ideas
-- sanitize user Rust code input (macros, build.rs)
-
-How? Would need also to scan dependencies or have a whitelist of allowed dependencies and/or macros.
-
-- allow macros only on private backends with `MACROS_ALLOWED=1` flag, default is disabled (protects public backends)
-
-Differentiating between public / private instances seems like a good idea anyway.
-Still would need to detect and reject the macros. Very restrictive.
-
-- run compile process in isolated environment (own container, VM, ...)
-- 1 workspace ~ 1 user with write permissions only for workspace dir, run compile commands under the workspace user
-
-These two are neat, but they don't solve the problem of resource draining.
-Spawning isolated instance per workspace is quite complex for deployment.
-
-### Solution
-This is a learning project, so I will keep it very simple.
-API would be configurable with `SHEEET_SECRET_API_KEY`, which if present would make the backend private
-and would require API calls to include the same secret API key.
-
-Public demo instance would be insecure and not guaranteed with huge disclaimer.
-And maybe I will implement some basic isolation or sanitization if deemed necessary.

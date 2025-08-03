@@ -4,13 +4,17 @@ project:
   tags:
     - zerops-recipe
 services:
-  - hostname: app
-    type: static@latest
-    buildFromGit: https://github.com/tikinang/sheeet@main
-    enableSubdomainAccess: true
   - hostname: api
     type: rust@stable
+    priority: 10
     envSecrets:
-      SHEEET_SECRET_API_KEY: <@generateRandomString(<24>)>
+      SHEEET_SECRET_API_KEY: <@generateRandomString(<32>)>
+    maxContainers: 1
+    verticalAutoscaling:
+      minRam: 0.25
+    buildFromGit: https://github.com/tikinang/sheeet@main
+    enableSubdomainAccess: true
+  - hostname: app
+    type: static@latest
     buildFromGit: https://github.com/tikinang/sheeet@main
     enableSubdomainAccess: true
