@@ -69,7 +69,7 @@
 
 <script type="module">
     // Handle demo onboarding.
-    
+
     function applyOnboarding() {
         localStorage.removeItem("workspace-id");
         localStorage.removeItem("secret-api-key");
@@ -130,7 +130,7 @@ pub async fn async_concat_with(vec: Vec<Promise>, sep: &str) -> String {
                 .as_string()
                 .unwrap(),
         );
-        if i <= len - 1 {
+        if i < len - 1 {
             str.push_str(sep);
         }
     }
@@ -162,14 +162,13 @@ pub async fn async_concat_with(vec: Vec<Promise>, sep: &str) -> String {
                 "2-15": "=round(a15)",
                 "3-3": "=fetch_get_json_path(A3, B3)",
                 "2-3": "address.street",
-                "2-9": "# from the sheeet_funcs prelude",
                 "3-2": "fetched data",
                 "1-13": "5.7",
                 "2-5": "address.street",
                 "2-2": "extract path",
                 "1-2": "address",
                 "3-9": "# sum of rounded below",
-                "1-9": "# using the base functions (sum)",
+                "1-9": "# using the base functions (sum) from the sheeet_funcs prelude",
                 "1-12": "1.2",
                 "3-6": "# try to copy the C3 cell to C4, C5",
                 "1-10": "number",
@@ -180,7 +179,7 @@ pub async fn async_concat_with(vec: Vec<Promise>, sep: &str) -> String {
             }
         }))
     }
-    
+
     const queryParams = new URLSearchParams(window.location.search);
     if (queryParams.get('demo')) {
         if (localStorage.getItem("workspace-id")) {
@@ -545,6 +544,13 @@ use wasm_bindgen::prelude::*;
 
     document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
         event.preventDefault();
+        if (oldValuePlaceholder) {
+            oldValuePlaceholder = null;
+            event.target.textContent = await window.resolveValue(() =>
+                window.wasmBindings.get_cell_resolved_value(event.target.id)
+            );
+            return;
+        }
         event.target.textContent = await window.resolveValue(() =>
             window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim())
         );
@@ -552,23 +558,43 @@ use wasm_bindgen::prelude::*;
     });
 
     document.getElementById("spreadsheet").addEventListener('mousedown', function (event) {
-        if (event.target.tagName === 'TD') {
-            isMouseDown = true;
-            selectCell(event.target, event.shiftKey);
-            document.activeElement.blur()
-            event.preventDefault();
+        // Skip row number column and header.
+        if (event.target === event.target.parentElement.firstElementChild || event.target.tagName !== 'TD') {
+            return;
         }
+        isMouseDown = true;
+        selectCell(event.target, event.shiftKey);
+        document.activeElement.blur()
+        event.preventDefault();
     });
 
     document.getElementById("spreadsheet").addEventListener('mousemove', function (event) {
-        if (isMouseDown && event.target.tagName === 'TD') {
-            selectCell(event.target, true);
-            event.preventDefault();
+        // Skip row number column and header.
+        if (event.target === event.target.parentElement.firstElementChild || event.target.tagName !== 'TD') {
+            return;
         }
+        if (!isMouseDown) {
+            return;
+        }
+        selectCell(event.target, true);
+        event.preventDefault();
     });
 
     document.addEventListener('mouseup', function () {
         isMouseDown = false;
+    });
+
+    document.getElementById("spreadsheet").addEventListener('dblclick', function (event) {
+        // Skip row number column and header.
+        if (event.target === event.target.parentElement.firstElementChild || event.target.tagName !== 'TD') {
+            return;
+        }
+        selectCell(event.target, false);
+        oldValuePlaceholder = rangeStartCell.textContent;
+        rangeStartCell.textContent = window.wasmBindings.get_cell_raw_value(rangeStartCell.id)
+        rangeStartCell.setAttribute("contenteditable", "true");
+        rangeStartCell.focus();
+        setEndOfContenteditable(rangeStartCell);
     });
 
     function addId(selectedId, vertical, val) {
@@ -581,11 +607,25 @@ use wasm_bindgen::prelude::*;
         return `${parts[0]}-${parts[1]}`
     }
 
+    function setEndOfContenteditable(element) {
+        if (document.createRange) {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            range.collapse(false);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+    }
+
     let copiedRangeStartCell = null;
     let copiedRangeEndCell = null;
     let cut = false;
+    let oldValuePlaceholder = null;
 
     window.addEventListener('keydown', async function (event) {
+        const isPrintable = event.key.length === 1 && !event.ctrlKey && !event.metaKey;
+
         if (event.ctrlKey) {
             switch (event.key) {
                 case 'Enter':
@@ -654,11 +694,14 @@ use wasm_bindgen::prelude::*;
                 }
                 event.preventDefault();
                 if (rangeStartCell.hasAttribute("contenteditable")) {
+                    oldValuePlaceholder = null;
                     rangeStartCell.removeAttribute("contenteditable");
                 } else {
+                    oldValuePlaceholder = rangeStartCell.textContent;
                     rangeStartCell.textContent = window.wasmBindings.get_cell_raw_value(rangeStartCell.id)
                     rangeStartCell.setAttribute("contenteditable", "true");
                     rangeStartCell.focus();
+                    setEndOfContenteditable(rangeStartCell);
                 }
                 return;
             case 'Escape':
@@ -737,10 +780,11 @@ use wasm_bindgen::prelude::*;
         }
 
         // Start editing the cell on keydown.
-        if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable")) {
+        if (!rangeStartCell || rangeStartCell.hasAttribute("contenteditable") || !isPrintable) {
             return;
         }
-        rangeStartCell.textContent = window.wasmBindings.get_cell_raw_value(rangeStartCell.id)
+        oldValuePlaceholder = rangeStartCell.textContent;
+        rangeStartCell.textContent = ""
         rangeStartCell.setAttribute("contenteditable", "true");
         rangeStartCell.focus();
     });

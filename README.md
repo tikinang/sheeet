@@ -124,6 +124,9 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
 - [ ] extender on range end
 - [ ] support Vim motions
 - [ ] How does it work? section in `README.md`
+- [ ] export/import data in json
+- [ ] cheat-sheet tooltip
+- [ ] allow logging to the build log console from user defined functions (better debug)
 
 ### Known Errors
 - [ ] self reference should error

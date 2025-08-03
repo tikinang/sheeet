@@ -93,17 +93,24 @@ tr:last-child td {
     border-bottom: none;
 }
 
-/*td {*/
-/*    margin: 0;*/
-/*    padding: 5px;*/
-/*    box-sizing: border-box;*/
-/*}*/
+/* Sticky first column */
+tbody td:first-child,
+thead th:first-child {
+    position: sticky;
+    left: 0;
+    background-color: black;
+}
 
 td { 
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: clip;
     white-space: nowrap;
-    max-width: 16rem;
+    max-width: 12rem;
+    box-sizing: border-box;
+}
+
+td:first-child {
+    text-align: center;
 }
 
 td.selected-top {
@@ -127,14 +134,43 @@ td.selected-anchor {
 }
 
 td:focus {
-    outline: 3px solid red;
+    outline: none;
+    border: 3px solid red !important;
     overflow: visible;
-    text-overflow: clip;
+    border-right: none !important;
 }
 
-td:hover {
+td:focus ~ td {
+    color: transparent;
+    border-left: none;
+    border-right: none;
+    border-top: 3px solid red;
+    border-bottom: 3px solid red;
+}
+
+td:focus ~ td:last-child {
+    border-right: 3px solid red !important;
+}
+
+td:hover:not(:empty):not(:focus):not(:first-child) {
     overflow: visible;
-    text-overflow: clip;
+    border-right: none;
+}
+
+td:hover:not(:empty):not(:focus):not(:first-child) ~ td {
+    color: transparent;
+    border-left: none;
+    border-right: none;
+}
+
+#spreadsheet {
+    font-size: 15px;
+}
+
+thead th:first-child,
+tbody td:first-child {
+    min-width: 4rem;
+    max-width: 6rem;
 }
 
 .status-bar {

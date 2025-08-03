@@ -25,6 +25,12 @@ pub fn get_cell_raw_value(id: &str) -> String {
 }
 
 #[wasm_bindgen]
+pub fn get_cell_resolved_value(id: &str) -> JsValue {
+    let key = CellPointer::from_serializable(id);
+    STATE.with_borrow(|state| state.get_cell_resolved_value(key).unwrap_or_default())
+}
+
+#[wasm_bindgen]
 pub fn set_cell_raw_value(id: &str, raw: &str) -> Result<JsValue, JsValue> {
     STATE.with_borrow_mut(|state| {
         let cell_pointer = CellPointer::from_serializable(id);
