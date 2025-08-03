@@ -1,0 +1,16 @@
+#yamlPreprocessor=on
+project: 
+  name: recipe-sheeet
+  tags:
+    - zerops-recipe
+services:
+  - hostname: app
+    type: static@latest
+    buildFromGit: https://github.com/tikinang/sheeet@main
+    enableSubdomainAccess: true
+  - hostname: api
+    type: rust@stable
+    envSecrets:
+      SHEEET_SECRET_API_KEY: <@generateRandomString(<24>)>
+    buildFromGit: https://github.com/tikinang/sheeet@main
+    enableSubdomainAccess: true

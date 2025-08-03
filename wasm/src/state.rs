@@ -422,6 +422,7 @@ impl State {
                         self.resolve_expression_value_and_dependencies(dependencies, input)?;
                     js_inputs.push(&val);
                 }
+                debug_log!("call '{name}' with {js_inputs:?}");
                 js_evaluate(&name, &js_inputs)
             }
             Expression::Reference(reference) => match reference {
@@ -458,7 +459,7 @@ impl State {
                         let keys = self
                             .cells
                             .keys()
-                            .filter(|key| key.0 == col)
+                            .filter(|key| key.0 == col && key.1 >= range_start.1)
                             .map(|key| key.clone())
                             .collect::<Vec<CellPointer>>();
                         for key in keys {
@@ -481,7 +482,7 @@ impl State {
                         let keys = self
                             .cells
                             .keys()
-                            .filter(|key| key.1 == col)
+                            .filter(|key| key.1 == col && key.0 >= range_start.0)
                             .map(|key| key.clone())
                             .collect::<Vec<CellPointer>>();
                         for key in keys {

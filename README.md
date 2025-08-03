@@ -34,6 +34,7 @@ Live at: https://sheeet.matejpavlicek.cz
   - workspace status bar (ID, API key, compile status, save status)
 - [ ] prepare Zerops Recipe for simple deployment
 - [ ] better onboarding (default data and code with comments)
+- [ ] extensive UI and error testing
 
 ### Nice to Have
 - [ ] add and remove columns and rows

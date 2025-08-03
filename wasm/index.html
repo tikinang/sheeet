@@ -82,18 +82,27 @@
 
     // This function is called from Rust to evaluate the user functions.
     window.js_evaluate = function (fnName, vars) {
-        return window.userWasmModule[fnName](...vars);
-    }
-    
-    window.resolveValue = async function(value) {
-        if (value instanceof Promise) {
-            return await value;
+        try {
+            return window.userWasmModule[fnName](...vars);
+        } catch (error) {
+            return `user func err: ${error}`
         }
-        return value;
+    }
+
+    window.resolveValue = async function (getValue) {
+        try {
+            let value = getValue();
+            if (value instanceof Promise) {
+                value = await value;
+            }
+            return value;
+        } catch (error) {
+            return `resolve val err: ${error}`
+        }
     }
 
     addEventListener("display-cell-value", async (event) => {
-        document.getElementById(event.detail.cellId).textContent = await window.resolveValue(event.detail.jsValue)
+        document.getElementById(event.detail.cellId).textContent = await window.resolveValue(() => event.detail.jsValue)
     })
 
 
@@ -205,7 +214,7 @@
                     setCompileStatus("compiled", "green");
                     window.wasmBindings.init_app();
                 } else {
-                    console.error("unknown SSE message:", parsed)
+                    appendLog(logsContainer, "unknown SSE message:", parsed)
                 }
             }
         }
@@ -410,7 +419,9 @@ pub fn sub(a: f64, b: f64) -> f64 {
 
     document.getElementById("spreadsheet").addEventListener('focusout', async function (event) {
         event.preventDefault();
-        event.target.textContent = await window.resolveValue(window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim()));
+        event.target.textContent = await window.resolveValue(() =>
+            window.wasmBindings.set_cell_raw_value(event.target.id, event.target.textContent.trim())
+        );
         unsave();
     });
 
@@ -495,12 +506,12 @@ pub fn sub(a: f64, b: f64) -> f64 {
                         const copiedCellId = `${col}-${row}`;
                         const targetCellId = `${col + colDistance}-${row + rowDistance}`
                         const newRawValue = window.wasmBindings.copy_cell_get_raw_value(copiedCellId, targetCellId);
-                        document.getElementById(targetCellId).textContent = await window.resolveValue(window.wasmBindings.set_cell_raw_value(targetCellId, newRawValue));
+                        document.getElementById(targetCellId).textContent = await window.resolveValue(() => window.wasmBindings.set_cell_raw_value(targetCellId, newRawValue));
                         unsave();
 
                         if (cut) {
                             const cutCell = document.getElementById(copiedCellId);
-                            cutCell.textContent = await window.resolveValue(window.wasmBindings.set_cell_raw_value(cutCell.id, ''));
+                            cutCell.textContent = await window.resolveValue(() => window.wasmBindings.set_cell_raw_value(cutCell.id, ''));
                             unsave();
                             cut = false;
                         }
@@ -543,7 +554,7 @@ pub fn sub(a: f64, b: f64) -> f64 {
                 forEachCell(rangeStartCell, rangeEndCell, async (col, row, _) => {
                     const targetCellId = `${col}-${row}`;
                     const toDeleteCell = document.getElementById(targetCellId);
-                    toDeleteCell.textContent = await window.resolveValue(window.wasmBindings.set_cell_raw_value(toDeleteCell.id, ''));
+                    toDeleteCell.textContent = await window.resolveValue(() => window.wasmBindings.set_cell_raw_value(toDeleteCell.id, ''));
                     unsave();
                 })
                 break;

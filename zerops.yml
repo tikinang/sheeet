@@ -4,7 +4,8 @@ zerops:
       os: ubuntu
       base: rust@stable
       buildCommands:
-        - cargo build -p sheeet-api -r
+        - zsc scale cpu 8 10m
+        - cargo build --package sheeet-api --release --jobs 8
         - mv target/release/sheeet-api sheeet-api
       deployFiles:
         - sheeet-api
@@ -36,6 +37,7 @@ zerops:
         - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
         - cargo binstall -y trunk
       buildCommands:
+        - zsc scale cpu 8 10m
         - cd wasm; trunk build
       deployFiles: 
         - wasm/dist
@@ -45,12 +47,15 @@ zerops:
       os: alpine
       base: static@latest
       envVariables:
-        # recipe value
-        # API_URL: $api_zeropsSubdomain/api
-        API_URL: https://sheeet.matejpavlicek.cz/api
+        API_URL: ${api_zeropsSubdomain}/api
       envReplace:
         delimiter: '$$'
         target: wasm/dist
       routing:
         root: wasm/dist
-        
+
+  - setup: demo
+    extends: app
+    run:
+      envVariables:
+        API_URL: https://sheeet.matejpavlicek.cz/api
