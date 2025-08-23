@@ -113,6 +113,9 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
 ### Nice to Have
 - [ ] add operators support (`+`,`-`,`*`,`/`,`^`,`%`) in expression parsing
 - [ ] add and remove columns and rows
+- [ ] allow resizing columns and rows
+- [ ] cut should not change the expressions - should be 1:1
+- [ ] extender on range end
 - [ ] use `async` instead of spawning threads in `PUT /compile`
 - [ ] browser stored environment secrets
 - [ ] pre-heat workspaces for demo newcomers
@@ -121,17 +124,16 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
 - [ ] allow more robust crate structure
 - [ ] shareable workspaces (both data and code)
 - [ ] add note to `README.md` where which data lives
-- [ ] extender on range end
 - [ ] support Vim motions
 - [ ] How does it work? section in `README.md`
-- [ ] export/import data in json
+- [ ] export/import data as JSON
 - [ ] cheat-sheet tooltip
 - [ ] allow logging to the build log console from user defined functions (better debug)
 
 ### Known Errors
 - [ ] self reference should error
 - [x] update unbounded range dependents
-- [ ] `=add(A1,,)` panics
+- [x] `=add(A1,,)` panics
 
 ## Development
 

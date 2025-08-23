@@ -9,13 +9,13 @@ use web_sys::window;
 
 #[wasm_bindgen]
 pub fn run_evaluate(input: &str) -> JsValue {
-    STATE.with_borrow_mut(|state| {
-        let expression = Expression::parse(input).unwrap();
-        let mut dependencies = Dependencies::default();
-        state
-            .resolve_expression_value_and_dependencies(&mut dependencies, &expression)
-            .unwrap_or_else(|err| err)
-    })
+    STATE
+        .with_borrow_mut(|state| {
+            let expression = Expression::parse(input).map_err(|err| JsValue::from_str(err))?;
+            let mut dependencies = Dependencies::default();
+            state.resolve_expression_value_and_dependencies(&mut dependencies, &expression)
+        })
+        .unwrap_or_else(|err| err)
 }
 
 #[wasm_bindgen]

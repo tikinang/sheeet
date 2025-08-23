@@ -269,7 +269,7 @@ impl State {
         let mut new_dependencies = Dependencies::default();
         let new_resolved_value = self
             .resolve_expression_value_and_dependencies(&mut new_dependencies, &parsed_expression)
-            .unwrap_or_else(|err| format!("ERROR: {err:?}").into());
+            .unwrap_or_else(|err| format!("resolve error: {err:?}").into());
 
         // Update cell's resolved values.
         debug_log!(
