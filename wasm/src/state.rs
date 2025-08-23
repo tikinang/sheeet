@@ -4,7 +4,7 @@ use crate::reference::{CellPointer, Reference};
 use js_sys::Array;
 use serde::{Deserialize, Serialize};
 use std::cmp::{max, min};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, LinkedList};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::{CustomEvent, CustomEventInit, window};
@@ -79,6 +79,7 @@ impl State {
             .map(|k| k.clone())
             .collect::<Vec<CellPointer>>()
         {
+            // TODO: Circular dependency check.
             self.resolve_cell_value_and_dependencies(k, ResolveDisplay::Update)?;
         }
         Ok(())
@@ -105,8 +106,9 @@ impl SerializableState {
             new_state.insert_cell(k.clone(), &v)?;
         }
         let keys: Vec<CellPointer> = new_state.cells.keys().map(|k| k.clone()).collect();
-        for k in keys {
-            new_state.resolve_cell_value_and_dependencies(k, ResolveDisplay::Noop)?;
+        for key in keys {
+            // TODO: Circular dependency check.
+            new_state.resolve_cell_value_and_dependencies(key, ResolveDisplay::Noop)?;
         }
         Ok(new_state)
     }
@@ -136,19 +138,19 @@ pub struct Dependencies {
 }
 
 impl State {
-    pub fn get_cell_raw_value(self: &Self, key: CellPointer) -> Option<String> {
+    pub fn get_cell_raw_value(&self, key: CellPointer) -> Option<String> {
         debug_log!("get_cell_raw_value: {key}");
         let cell = self.cells.get(&key)?;
         Some(cell.raw_value.clone())
     }
 
-    pub fn get_cell_resolved_value(self: &Self, key: CellPointer) -> Option<JsValue> {
+    pub fn get_cell_resolved_value(&self, key: CellPointer) -> Option<JsValue> {
         debug_log!("get_cell_resolved_value: {key}");
         let cell = self.cells.get(&key)?;
         cell.resolved_value.clone()
     }
 
-    pub fn insert_cell(self: &mut Self, key: CellPointer, raw: &str) -> Result<(), JsValue> {
+    pub fn insert_cell(&mut self, key: CellPointer, raw: &str) -> Result<(), JsValue> {
         debug_log!("insert_cell: {key} -> {raw}");
         let expr = Expression::parse(raw)?;
         let cell = Cell {
@@ -162,7 +164,7 @@ impl State {
     }
 
     pub fn copy_cell_expression(
-        self: &Self,
+        &self,
         from: CellPointer,
         to: CellPointer,
     ) -> Result<JsValue, JsValue> {
@@ -178,7 +180,7 @@ impl State {
         }
     }
 
-    pub fn upsert_cell(self: &mut Self, key: CellPointer, raw: &str) -> Result<JsValue, JsValue> {
+    pub fn upsert_cell(&mut self, key: CellPointer, raw: &str) -> Result<JsValue, JsValue> {
         debug_log!("upsert_cell: {key} -> {raw}");
         let expr = Expression::parse(raw)?;
         self.cells
@@ -196,10 +198,11 @@ impl State {
                     resolved_dependencies: None,
                 }
             });
+        self.check_circular_dependency(key, &expr)?;
         self.resolve_cell_value_and_dependencies(key, ResolveDisplay::UpdateNext)
     }
 
-    pub fn remove_cell(self: &mut Self, key: CellPointer) -> Result<(), JsValue> {
+    pub fn remove_cell(&mut self, key: CellPointer) -> Result<(), JsValue> {
         debug_log!("remove_cell: {key}");
         if let Some(mut cell) = self.cells.remove(&key) {
             if let Some(dependencies) = cell.resolved_dependencies.take() {
@@ -255,8 +258,108 @@ impl State {
         Ok(())
     }
 
+    fn check_circular_dependency(
+        &self,
+        key: CellPointer,
+        expression: &Expression,
+    ) -> Result<(), JsValue> {
+        let mut visited = LinkedList::new();
+        visited.push_back(key);
+        self.check_circular_dependency_inner(expression, &mut visited)
+    }
+
+    fn check_circular_dependency_inner(
+        &self,
+        expression: &Expression,
+        visited: &mut LinkedList<CellPointer>,
+    ) -> Result<(), JsValue> {
+        match expression {
+            Expression::Function { inputs, .. } => {
+                for input in inputs {
+                    self.check_circular_dependency_inner(input, visited)?;
+                }
+                Ok(())
+            }
+            Expression::Reference(reference) => match reference {
+                Reference::Single(key) => {
+                    self.check_circular_dependency_single_reference(key, visited)
+                }
+                Reference::BoundedRange(range_start, range_end) => {
+                    let min_col = min(range_start.0, range_end.0);
+                    let max_col = max(range_start.0, range_end.0);
+                    let min_row = min(range_start.1, range_end.1);
+                    let max_row = max(range_start.1, range_end.1);
+                    for col in min_col..=max_col {
+                        for row in min_row..=max_row {
+                            let key = CellPointer(col, row);
+                            self.check_circular_dependency_single_reference(&key, visited)?;
+                        }
+                    }
+                    Ok(())
+                }
+                Reference::UnboundedColRange(range_start, col) => {
+                    let min_col = range_start.0;
+                    let max_col = col.clone();
+                    for col in min_col..=max_col {
+                        let keys = self
+                            .cells
+                            .keys()
+                            .filter(|key| key.0 == col && key.1 >= range_start.1)
+                            .map(|key| key.clone())
+                            .collect::<Vec<CellPointer>>();
+                        for key in keys {
+                            self.check_circular_dependency_single_reference(&key, visited)?;
+                        }
+                    }
+                    Ok(())
+                }
+                Reference::UnboundedRowRange(range_start, row) => {
+                    let min_row = range_start.1;
+                    let max_row = row.clone();
+                    for col in min_row..=max_row {
+                        let keys = self
+                            .cells
+                            .keys()
+                            .filter(|key| key.1 == col && key.0 >= range_start.0)
+                            .map(|key| key.clone())
+                            .collect::<Vec<CellPointer>>();
+                        for key in keys {
+                            self.check_circular_dependency_single_reference(&key, visited)?;
+                        }
+                    }
+                    Ok(())
+                }
+            },
+            Expression::Value(_) => Ok(()),
+        }
+    }
+
+    fn check_circular_dependency_single_reference(
+        &self,
+        key: &CellPointer,
+        visited: &mut LinkedList<CellPointer>,
+    ) -> Result<(), JsValue> {
+        if let Some(cell) = self.cells.get(key) {
+            if visited.contains(key) {
+                return Err((&format!(
+                    "circular dependency: {key} in chain {:?}",
+                    visited
+                        .iter()
+                        .map(|key| key.to_string())
+                        .chain(vec![key.to_string()])
+                        .collect::<Vec<String>>()
+                ))
+                    .into());
+            }
+            visited.push_back(key.clone());
+            self.check_circular_dependency_inner(&cell.parsed_expression, visited)?;
+            _ = visited.pop_back();
+        }
+        Ok(())
+    }
+
     fn resolve_cell_value_and_dependencies(
-        self: &mut Self,
+        &mut self,
         key: CellPointer,
         display: ResolveDisplay,
     ) -> Result<JsValue, JsValue> {
@@ -410,7 +513,7 @@ impl State {
     }
 
     pub fn resolve_expression_value_and_dependencies(
-        self: &mut Self,
+        &mut self,
         dependencies: &mut Dependencies,
         expression: &Expression,
     ) -> Result<JsValue, JsValue> {

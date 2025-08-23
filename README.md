@@ -108,7 +108,7 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
   - workspace status bar (ID, API key, compile status, save status)
 - [x] prepare Zerops Recipe for simple deployment
 - [x] better onboarding (default data and code with comments)
-- [ ] extensive UI and error handling testing
+- [x] extensive UI and error handling testing
 
 ### Nice to Have
 - [ ] add operators support (`+`,`-`,`*`,`/`,`^`,`%`) in expression parsing
@@ -129,9 +129,10 @@ Any feedback, ideas or bug reports are warmly welcomed! Just open an issue.
 - [ ] export/import data as JSON
 - [ ] cheat-sheet tooltip
 - [ ] allow logging to the build log console from user defined functions (better debug)
+- [ ] autosave and versioning (ctrl+z)
 
 ### Known Errors
-- [ ] self reference should error
+- [x] self reference should error
 - [x] update unbounded range dependents
 - [x] `=add(A1,,)` panics
 
